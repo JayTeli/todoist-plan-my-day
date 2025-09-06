@@ -1,7 +1,3 @@
-Here’s a **README.md draft** for your Chrome extension project. I’ll write it in GitHub-friendly Markdown, and I’ll include placeholders for screenshots (you can capture them once the extension runs in Chrome and drop the PNGs into a `/docs` or `/screenshots` folder).
-
----
-
 # 📅 Todoist Daily Planner — Chrome Extension
 
 A Chrome Extension that helps you **plan your day in Todoist**.
@@ -146,12 +142,4 @@ At the end, you’ll see a success message telling you your day is ready.
 
 ## 📜 License
 
-MIT License © 2025 \[Your Name]
-
----
-
-👉 Once you take screenshots, drop them into `/screenshots` and update the image links in the README.
-
----
-
-Would you like me to also create a **demo GIF** workflow (using placeholders) so that anyone reading the README can get the flow without installing it?
+MIT License © 2025 \[Jay Teli]
