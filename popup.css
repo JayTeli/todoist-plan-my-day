@@ -32,3 +32,5 @@
   .feature-subtitle{ color:var(--muted); font-size:12px; }
   .list .task-card{ cursor:pointer; }
   .list .task-card + .task-card{ margin-top:8px; }
+  .header-title{ display:flex; align-items:center; gap:8px; }
+  .header-title img{ border-radius:4px; }
