@@ -12,17 +12,13 @@ A lightweight Chrome Extension (Manifest V3) to plan your day with Todoist.
 
 Add your screenshots to the `docs/` folder with the following filenames (or update the paths below):
 
-- Home screen with features
+- Home screen with features : Plan-my-day and Search
   
   ![Home](docs/home.png)
 
 - Task review screen
   
   ![Task Review](docs/review.png)
-
-- Search keyword entry (home)
-  
-  ![Search](docs/search.png)
 
 - Search results list
   
