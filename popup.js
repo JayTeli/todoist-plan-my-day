@@ -95,6 +95,18 @@ function presetChoiceToISO(choice) {
     case 'next_fri':      return nextWeekdayISO(5);
     case 'next_sat':      return nextWeekdayISO(6);
     case 'next_sun':      return nextWeekdayISO(0);
+    case 'next_28th': {
+      // 28th of current month if strictly after today; otherwise 28th of next month
+      const d = new Date(now.getFullYear(), now.getMonth(), 28);
+      const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (d > todayOnly) return toLocalISO(d);
+      const d2 = new Date(now.getFullYear(), now.getMonth() + 1, 28);
+      return toLocalISO(d2);
+    }
+    case 'next_1st': {
+      const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      return toLocalISO(d);
+    }
     default:              return toLocalISO(now);
   }
 }
