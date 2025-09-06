@@ -1,6 +1,7 @@
 // MV3 popup for reviewing today's Todoist tasks with grouped labels + calendar date (robust updates)
 const API_BASE = 'https://api.todoist.com/rest/v2';
 const KEY = 'pmd_todoist_token_v1';
+const APP_BASE = 'https://app.todoist.com';
 
 // Screens
 const scrStart = document.getElementById('screen-start');
@@ -17,15 +18,21 @@ const skipTaskBtn = document.getElementById('skipTask');
 const restartBtn = document.getElementById('restart');
 const statusEl = document.getElementById('status');
 const prevTaskBtn = document.getElementById('prevTask');
+// Search
+const scrSearch = document.getElementById('screen-search');
+const searchInput = document.getElementById('searchInput');
+const searchBtn = document.getElementById('searchBtn');
+const searchList = document.getElementById('searchList');
+const backHomeBtn = document.getElementById('backHome');
 
 // Task UI
 const taskTitleEl = document.getElementById('taskTitle');
 const taskMetaEl  = document.getElementById('taskMeta');
 
 // Calendar controls
-const openCalendarBtn = document.getElementById('openCalendar');
-const customDateInput = document.getElementById('customDate');
-const customDateLabel = document.getElementById('customDateLabel');
+// const openCalendarBtn = document.getElementById('openCalendar');
+// const customDateInput = document.getElementById('customDate');
+// const customDateLabel = document.getElementById('customDateLabel');
 
 let tasks = [];
 let idx = 0;
@@ -33,17 +40,17 @@ let token = '';
 let customDateISO = null; // YYYY-MM-DD
 let labelIndexByName = new Map(); // name -> id
 let projectIdToName = new Map(); // id -> name
+let cameFromSearch = false; // whether current task view was opened from search
 
 function show(el){
-  [scrStart, scrToken, scrTask, scrDone].forEach(s => s && s.classList.add('hidden'));
+  [scrStart, scrToken, scrTask, scrDone, scrSearch].forEach(s => s && s.classList.add('hidden'));
   el && el.classList.remove('hidden');
 }
 function qAll(sel){ return Array.from(document.querySelectorAll(sel)); }
 
 function setDateControlsEnabled(enabled){
   qAll('input[name="dateChoice"]').forEach(r => { r.disabled = !enabled; });
-  if (openCalendarBtn) openCalendarBtn.disabled = !enabled;
-  if (customDateInput) customDateInput.disabled = !enabled;
+  // calendar removed
 }
 
 // Token storage
@@ -152,6 +159,26 @@ async function tdFetch(path, opts){
   return data;
 }
 
+async function appFetch(path, { method='GET', body } = {}){
+	if (!token) throw new Error('Missing Todoist token');
+	const url = APP_BASE + path;
+	const res = await fetch(url, {
+		method,
+		headers: {
+			'Authorization': 'Bearer ' + token,
+			'Content-Type': 'application/json',
+			'doist-locale': 'en',
+			'doist-os': 'Linux',
+			'doist-platform': 'web'
+		},
+		body: body ? JSON.stringify(body) : undefined
+	});
+	const text = await res.text();
+	let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+	if (!res.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status + ': ' + text));
+	return data;
+}
+
 async function fetchTodayTasks(){
 	const filter = 'overdue | today';
 	const data = await tdFetch('/tasks?filter=' + encodeURIComponent(filter));
@@ -177,6 +204,11 @@ async function preloadProjects(){
   for (const p of (projects || [])){
     if (p.id && p.name) projectIdToName.set(String(p.id), p.name);
   }
+}
+async function ensureProjectsLoaded(){
+	if (projectIdToName.size === 0){
+		try { await preloadProjects(); } catch(_e){}
+	}
 }
 
 function namesToLabelIds(names){
@@ -229,6 +261,69 @@ async function refreshCurrentTask(){
   }
 }
 
+async function fetchByFilter(filter){
+	return await tdFetch('/tasks?filter=' + encodeURIComponent(filter));
+}
+
+async function searchTasksByKeyword(keyword){
+	const kw = String(keyword || '').trim();
+	if (!kw) return [];
+	// Try new app endpoint for search
+	try{
+		const data = await appFetch('/api/v1/completed/search?query=' + encodeURIComponent(kw));
+		// The endpoint returns completed matches; we only want active tasks.
+		// As a follow-up, also fetch active tasks and filter client-side.
+		const all = await tdFetch('/tasks');
+		const lower = kw.toLowerCase();
+		const activeMatches = (Array.isArray(all) ? all : []).filter(t => t && typeof t.content === 'string' && t.content.toLowerCase().includes(lower));
+		return activeMatches.slice(0, 50);
+	}catch(e){
+		console.warn('app.todoist search failed, using REST fallback:', e?.message || e);
+		// Fallback: REST filter-only and/or client filter
+		const safeKw = kw.replace(/"/g, '\\"');
+		try {
+			const res = await fetchByFilter(`search: "${safeKw}"`);
+			return Array.isArray(res) ? res.slice(0, 50) : [];
+		} catch(_e){
+			const all = await tdFetch('/tasks');
+			const lower = kw.toLowerCase();
+			const matches = Array.isArray(all) ? all.filter(t => t && typeof t.content === 'string' && t.content.toLowerCase().includes(lower)) : [];
+			return matches.slice(0, 50);
+		}
+	}
+}
+
+function renderSearchResults(list){
+	searchList.innerHTML = '';
+	if (!list.length){
+		searchList.innerHTML = '<p class="muted">No matching active tasks found.</p>';
+		return;
+	}
+	for (const t of list){
+		const div = document.createElement('div');
+		div.className = 'task-card';
+		const pname = t.project_id ? (projectIdToName.get(String(t.project_id)) || t.project_id) : '';
+		const due = (t.due && t.due.string) ? t.due.string : '';
+		div.innerHTML = `<div class="task-title">${t.content || '(Untitled)'}${pname ? ' • ' + pname : ''}</div><div class="task-meta">${due}</div>`;
+		div.addEventListener('click', async () => {
+			cameFromSearch = true;
+			await ensureProjectsLoaded();
+			const pos = tasks.findIndex(x => String(x.id) === String(t.id));
+			if (pos >= 0){
+				idx = pos;
+				show(scrTask);
+				renderCurrentTask();
+			} else {
+				tasks.unshift(t);
+				idx = 0;
+				show(scrTask);
+				renderCurrentTask();
+			}
+		});
+		searchList.appendChild(div);
+	}
+}
+
 // ----- UI flow -----
 function renderCurrentTask(){
   const t = tasks[idx];
@@ -271,12 +366,12 @@ function renderCurrentTask(){
   });
 
   customDateISO = null;
-  if (customDateInput) customDateInput.value = '';
-  if (customDateLabel) customDateLabel.textContent = '';
+  // if (customDateInput) customDateInput.value = '';
+  // if (customDateLabel) customDateLabel.textContent = '';
   if (statusEl) statusEl.textContent = '';
 
-  // Nav state
-  if (prevTaskBtn) prevTaskBtn.disabled = (idx <= 0);
+  // Nav state: enable Previous if came from search, else based on idx
+  if (prevTaskBtn) prevTaskBtn.disabled = cameFromSearch ? false : (idx <= 0);
 
   // Always enable date controls (including for recurring)
   setDateControlsEnabled(true);
@@ -422,32 +517,55 @@ if (submitUpdateBtn) submitUpdateBtn.addEventListener('click', async function(){
 if (skipTaskBtn)     skipTaskBtn.addEventListener('click', skipCurrent);
 if (restartBtn)      restartBtn.addEventListener('click', function(){ show(scrStart); });
 if (prevTaskBtn)     prevTaskBtn.addEventListener('click', async function(){
-  if (idx > 0){
-    idx -= 1;
-    await refreshCurrentTask();
-  }
+	if (cameFromSearch){
+		cameFromSearch = false;
+		show(scrSearch);
+		return;
+	}
+	if (idx > 0){
+		idx -= 1;
+		await refreshCurrentTask();
+	}
 });
+if (searchBtn){
+	searchBtn.addEventListener('click', async function(){
+		const kw = (searchInput && searchInput.value || '').trim();
+		if (!kw) return;
+		show(scrSearch);
+		if (searchList) searchList.innerHTML = '<p class="muted">Searching… please wait</p>';
+		const prevBtnDisabled = !!searchBtn.disabled;
+		const prevInpDisabled = !!(searchInput && searchInput.disabled);
+		searchBtn.disabled = true;
+		if (searchInput) searchInput.disabled = true;
+		try{
+			await ensureProjectsLoaded();
+			const results = await searchTasksByKeyword(kw);
+			renderSearchResults(results);
+		}catch(e){
+			searchList.innerHTML = `<p class="muted">Search failed: ${e.message}</p>`;
+		} finally {
+			searchBtn.disabled = prevBtnDisabled ? true : false;
+			if (searchInput) searchInput.disabled = prevInpDisabled ? true : false;
+		}
+	});
+}
+if (searchInput){
+	searchInput.addEventListener('keydown', function(e){
+		if (e.key === 'Enter'){
+			e.preventDefault();
+			if (searchBtn) searchBtn.click();
+		}
+	});
+}
+if (backHomeBtn){
+  backHomeBtn.addEventListener('click', function(){
+    cameFromSearch = false;
+    if (searchList) searchList.innerHTML = '';
+    show(scrStart);
+  });
+}
 
-// Calendar interactions
-if (openCalendarBtn){
-  openCalendarBtn.addEventListener('click', function(){
-    if (customDateInput){
-      customDateInput.classList.remove('hidden');
-      if (customDateInput.showPicker) customDateInput.showPicker();
-    }
-  });
-}
-if (customDateInput){
-  customDateInput.addEventListener('change', function(){
-    if (customDateInput.value){
-      customDateISO = customDateInput.value; // YYYY-MM-DD
-      if (customDateLabel) customDateLabel.textContent = 'Selected: ' + customDateISO;
-    } else {
-      customDateISO = null;
-      if (customDateLabel) customDateLabel.textContent = '';
-    }
-  });
-}
+// Calendar interactions removed
 
 // Init
 (function init(){

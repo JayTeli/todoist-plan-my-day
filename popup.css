@@ -26,3 +26,9 @@
   .icon-btn{ display:inline-flex; align-items:center; gap:6px; background:#fff; color:#111; border:1px solid var(--border); padding:6px 10px; border-radius:8px; }
   #customDateLabel{ font-size:12px; }
   .status{ min-height:20px; font-size:12px; color:var(--muted); margin-top:6px; }
+  .feature{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; margin:12px 0; }
+  .feature-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+  .feature-title{ font-weight:700; }
+  .feature-subtitle{ color:var(--muted); font-size:12px; }
+  .list .task-card{ cursor:pointer; }
+  .list .task-card + .task-card{ margin-top:8px; }
