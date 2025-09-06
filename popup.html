@@ -22,7 +22,7 @@
       <section id="screen-start" class="screen">
         <h1>Plan My Day</h1>
         <button id="planBtn">Plan my day</button>
-        <p id="startInfo" class="muted">Fetch today's tasks from Todoist and review them one-by-one.</p>
+        <p id="startInfo" class="muted">Fetch overdue and today's tasks from Todoist and review them one-by-one.</p>
       </section>
 
       <!-- Screen 2: Task review -->
@@ -38,8 +38,13 @@
           <div class="radios">
             <label><input type="radio" name="dateChoice" value="today" checked /> Today</label>
             <label><input type="radio" name="dateChoice" value="tomorrow" /> Tomorrow</label>
-            <label><input type="radio" name="dateChoice" value="next_tuesday" /> Next Tues</label>
-            <label><input type="radio" name="dateChoice" value="next_saturday" /> Next Saturday</label>
+            <label><input type="radio" name="dateChoice" value="next_mon" /> next Mon</label>
+            <label><input type="radio" name="dateChoice" value="next_tue" /> next Tues</label>
+            <label><input type="radio" name="dateChoice" value="next_wed" /> next Wed</label>
+            <label><input type="radio" name="dateChoice" value="next_thu" /> next Thurs</label>
+            <label><input type="radio" name="dateChoice" value="next_fri" /> next Fri</label>
+            <label><input type="radio" name="dateChoice" value="next_sat" /> next Sat</label>
+            <label><input type="radio" name="dateChoice" value="next_sun" /> next Sun</label>
           </div>
           <div class="calendar-row">
             <button id="openCalendar" class="icon-btn" title="Pick a date" aria-label="Pick a date">
@@ -82,6 +87,7 @@
 
         <div class="row">
           <button id="submitUpdate">Submit</button>
+          <button id="prevTask" class="secondary">Previous</button>
           <button id="skipTask" class="secondary">Skip</button>
         </div>
         <div id="status" class="status"></div>
