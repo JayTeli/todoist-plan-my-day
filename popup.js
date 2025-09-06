@@ -374,15 +374,45 @@ function renderCurrentTask(){
   const existingLabelIds = new Set(
     Array.isArray(t.label_ids) ? t.label_ids.map(n => Number(n)).filter(n => Number.isFinite(n)) : []
   );
-  qAll('.checks input[type=checkbox]').forEach(c => {
-    const nameKey = String(c.value).toLowerCase();
-    if (existingLabelNames.has(nameKey)) {
-      c.checked = true;
-      return;
+
+  // Clear radios
+  qAll('input[name="urgencyChoice"]').forEach(r => { r.checked = false; });
+  qAll('input[name="pressureChoice"]').forEach(r => { r.checked = false; });
+  // Clear quick wins checkbox
+  qAll('.checks input[type=checkbox]').forEach(c => { c.checked = false; });
+
+  // Apply existing labels to radios/checkbox
+  function checkIfHasLabel(labelName){
+    const key = String(labelName).toLowerCase();
+    if (existingLabelNames.has(key)) return true;
+    const id = labelIndexByName.get(key);
+    return !!(id && existingLabelIds.has(Number(id)));
+  }
+
+  const urgencyMap = ['urgent-now','urgent-today','urgent-soon'];
+  const pressureMap = ['high-pressure','low-pressure'];
+
+  // Set urgency radio if any matches
+  for (const u of urgencyMap){
+    if (checkIfHasLabel(u)){
+      const el = document.querySelector(`input[name="urgencyChoice"][value="${u}"]`);
+      if (el) el.checked = true;
+      break;
     }
-    const id = labelIndexByName.get(nameKey);
-    if (id && existingLabelIds.has(Number(id))) c.checked = true;
-  });
+  }
+  // Set pressure radio if any matches
+  for (const p of pressureMap){
+    if (checkIfHasLabel(p)){
+      const el = document.querySelector(`input[name="pressureChoice"][value="${p}"]`);
+      if (el) el.checked = true;
+      break;
+    }
+  }
+  // Quick wins checkbox
+  if (checkIfHasLabel('low-hanging-fruit')){
+    const el = document.querySelector('.checks input[type=checkbox][value="low-hanging-fruit"]');
+    if (el) el.checked = true;
+  }
 
   customDateISO = null;
   // if (customDateInput) customDateInput.value = '';
@@ -462,7 +492,14 @@ async function submitCurrent(){
 
   const chosenRadio = document.querySelector('input[name="dateChoice"]:checked');
   const dateChoice = chosenRadio ? chosenRadio.value : 'today';
-  const selectedLabels = qAll('.checks input[type=checkbox]:checked').map(c => c.value);
+
+  // Collect labels from new radios + quick wins checkbox
+  const selectedLabels = [];
+  const uEl = document.querySelector('input[name="urgencyChoice"]:checked');
+  if (uEl) selectedLabels.push(uEl.value);
+  const pEl = document.querySelector('input[name="pressureChoice"]:checked');
+  if (pEl) selectedLabels.push(pEl.value);
+  qAll('.checks input[type=checkbox]:checked').forEach(c => { if (c.value) selectedLabels.push(c.value); });
 
   try {
     // Ensure labels exist
