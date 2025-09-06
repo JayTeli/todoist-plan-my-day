@@ -1,0 +1,22 @@
+{
+    "manifest_version": 3,
+    "name": "Todoist - Plan My Day",
+    "version": "1.1.0",
+    "description": "Fetch today's Todoist tasks, review one-by-one, reschedule & label, and update.",
+    "action":
+    {
+        "default_popup": "popup.html",
+        "default_title": "Todoist - Plan My Day"
+    },
+    "icons": {
+        "128": "assets/icon-128.png"
+    },
+    "permissions":
+    [
+        "storage"
+    ],
+    "host_permissions":
+    [
+        "https://api.todoist.com/*"
+    ]
+}

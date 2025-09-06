@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Plan My Day — Todoist</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <!-- Screen 0: Token prompt (only shown if no token saved) -->
+      <section id="screen-token" class="screen hidden">
+        <h1>Connect Todoist</h1>
+        <p>Paste your Todoist <strong>API token</strong> (Settings → Integrations → API token).</p>
+        <input id="tokenInput" type="password" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        <div class="row">
+          <button id="saveToken">Save token</button>
+        </div>
+        <p class="hint">Your token is stored locally in <code>chrome.storage.sync</code>.</p>
+      </section>
+
+      <!-- Screen 1: Start -->
+      <section id="screen-start" class="screen">
+        <h1>Plan My Day</h1>
+        <button id="planBtn">Plan my day</button>
+        <p id="startInfo" class="muted">Fetch today's tasks from Todoist and review them one-by-one.</p>
+      </section>
+
+      <!-- Screen 2: Task review -->
+      <section id="screen-task" class="screen hidden">
+        <div class="task-card">
+          <div class="task-title" id="taskTitle"></div>
+          <div class="task-meta" id="taskMeta"></div>
+        </div>
+
+        <!-- Date selection group (preset radios + custom calendar) -->
+        <div class="group">
+          <div class="label">Date</div>
+          <div class="radios">
+            <label><input type="radio" name="dateChoice" value="today" checked /> Today</label>
+            <label><input type="radio" name="dateChoice" value="tomorrow" /> Tomorrow</label>
+            <label><input type="radio" name="dateChoice" value="next_tuesday" /> Next Tues</label>
+            <label><input type="radio" name="dateChoice" value="next_saturday" /> Next Saturday</label>
+          </div>
+          <div class="calendar-row">
+            <button id="openCalendar" class="icon-btn" title="Pick a date" aria-label="Pick a date">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+                <path d="M8 2v4M16 2v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M3 9h18" stroke="currentColor" stroke-width="2"/>
+              </svg>
+              <span>Custom date</span>
+            </button>
+            <input id="customDate" type="date" class="hidden" />
+            <span id="customDateLabel" class="muted"></span>
+          </div>
+        </div>
+
+        <!-- Labels grouped by meaning -->
+        <div class="group">
+          <div class="label">Urgency</div>
+          <div class="checks">
+            <label><input type="checkbox" value="urgent-now" /> urgent-now</label>
+            <label><input type="checkbox" value="urgent-today" /> urgent-today</label>
+            <label><input type="checkbox" value="urgent-soon" /> urgent-soon</label>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="label">Pressure</div>
+          <div class="checks">
+            <label><input type="checkbox" value="high-pressure" /> high-pressure</label>
+            <label><input type="checkbox" value="low-pressure" /> low-pressure</label>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="label">Quick wins</div>
+          <div class="checks">
+            <label><input type="checkbox" value="low-hanging-fruit" /> low-hanging-fruit</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="submitUpdate">Submit</button>
+          <button id="skipTask" class="secondary">Skip</button>
+        </div>
+        <div id="status" class="status"></div>
+      </section>
+
+      <!-- Screen 3: All done -->
+      <section id="screen-done" class="screen hidden">
+        <h1>We are ready for the day! ✨</h1>
+        <p class="muted">You've reviewed all tasks planned for today. Go get those wins. 💪</p>
+        <button id="restart" class="secondary">Start over</button>
+      </section>
+    </div>
+
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>
