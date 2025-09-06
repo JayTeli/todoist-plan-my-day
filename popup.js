@@ -58,10 +58,10 @@ function setDateControlsEnabled(enabled){
 
 // Token storage
 function getToken(){
-  return new Promise(res => chrome.storage.sync.get([KEY], r => res(r[KEY] || '')));
+return new Promise(res => chrome.storage.sync.get([KEY], r => res(r[KEY] || '')));
 }
 function setToken(v){
-  return new Promise(res => chrome.storage.sync.set({ [KEY]: v }, res));
+return new Promise(res => chrome.storage.sync.set({ [KEY]: v }, res));
 }
 
 // ----- Date helpers (timezone-safe) -----
@@ -163,10 +163,10 @@ async function tdFetch(path, opts){
 }
 
 async function appFetch(path, { method='GET', body } = {}){
-	if (!token) throw new Error('Missing Todoist token');
+if (!token) throw new Error('Missing Todoist token');
 	const url = APP_BASE + path;
 	const res = await fetch(url, {
-		method,
+method,
 		headers: {
 			'Authorization': 'Bearer ' + token,
 			'Content-Type': 'application/json',
@@ -174,12 +174,12 @@ async function appFetch(path, { method='GET', body } = {}){
 			'doist-os': 'Linux',
 			'doist-platform': 'web'
 		},
-		body: body ? JSON.stringify(body) : undefined
-	});
-	const text = await res.text();
-	let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+body: body ? JSON.stringify(body) : undefined
+});
+const text = await res.text();
+let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
 	if (!res.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status + ': ' + text));
-	return data;
+return data;
 }
 
 function getDueTimestamp(task){
@@ -347,7 +347,13 @@ function renderCurrentTask(){
   console.log('Task ID:', t.id);
   console.log('Task content:', t.content);
   
-  taskTitleEl.textContent = t.content || '(Untitled)';
+  const titleText = t.content || '(Untitled)';
+  const href = t.url || (t.id ? ('https://app.todoist.com/app/task/' + String(t.id)) : null);
+  if (href){
+    taskTitleEl.innerHTML = `<a href="${href}" target="_blank" rel="noopener noreferrer">${titleText}</a>`;
+  } else {
+    taskTitleEl.textContent = titleText;
+  }
   const due = (t.due && t.due.string) ? ('Due: ' + t.due.string) : 'No due date';
   const recurring = (t.due && t.due.is_recurring) ? ' • Recurring' : '';
   let project = '';
