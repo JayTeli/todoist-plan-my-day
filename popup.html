@@ -58,6 +58,7 @@
           <div class="label">Date</div>
           <div class="radios">
             <label><input type="radio" name="dateChoice" value="today" checked /> Today</label>
+            <label><input type="radio" name="dateChoice" value="skip_next" /> Skip to next occurrence</label>
             <label><input type="radio" name="dateChoice" value="tomorrow" /> Tomorrow</label>
             <label><input type="radio" name="dateChoice" value="next_mon" /> next Mon</label>
             <label><input type="radio" name="dateChoice" value="next_tue" /> next Tues</label>
@@ -98,6 +99,8 @@
           <button id="submitUpdate">Submit</button>
           <button id="prevTask" class="secondary">Previous</button>
           <button id="skipTask" class="secondary">Skip</button>
+          <button id="doneTask" class="success sm">Done</button>
+          <button id="deleteTask" class="danger sm">Delete</button>
         </div>
         <div id="status" class="status"></div>
       </section>

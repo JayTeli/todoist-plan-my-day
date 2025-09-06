@@ -10,7 +10,7 @@
   h1{ font-size:18px; margin:0 0 10px; }
   .muted{ color:var(--muted); }
   .label{ font-weight:700; margin-bottom:6px; }
-  .row{ display:flex; gap:10px; align-items:center; margin-top:10px; }
+  .row{ display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap; }
   button{ background:var(--accent); color:#fff; border:none; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600; }
   button.secondary{ background:#e2e8f0; color:#111; }
   input[type=password], input[type=text]{ width:100%; padding:10px; border:1px solid var(--border); border-radius:10px; }
@@ -34,3 +34,6 @@
   .list .task-card + .task-card{ margin-top:8px; }
   .header-title{ display:flex; align-items:center; gap:8px; }
   .header-title img{ border-radius:4px; }
+  .row .sm{ padding:6px 10px; border-radius:8px; font-size:13px; }
+button.success{ background:#16a34a; color:#fff; }
+button.danger{ background:#dc2626; color:#fff; }

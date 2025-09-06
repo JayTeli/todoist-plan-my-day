@@ -18,12 +18,15 @@ const skipTaskBtn = document.getElementById('skipTask');
 const restartBtn = document.getElementById('restart');
 const statusEl = document.getElementById('status');
 const prevTaskBtn = document.getElementById('prevTask');
+const deleteTaskBtn = document.getElementById('deleteTask');
+const doneTaskBtn = document.getElementById('doneTask');
 // Search
 const scrSearch = document.getElementById('screen-search');
 const searchInput = document.getElementById('searchInput');
 const searchBtn = document.getElementById('searchBtn');
 const searchList = document.getElementById('searchList');
 const backHomeBtn = document.getElementById('backHome');
+
 
 // Task UI
 const taskTitleEl = document.getElementById('taskTitle');
@@ -179,15 +182,25 @@ async function appFetch(path, { method='GET', body } = {}){
 	return data;
 }
 
+function getDueTimestamp(task){
+  if (!task || !task.due) return Number.POSITIVE_INFINITY;
+  const dt = task.due.datetime || task.due.date;
+  if (!dt) return Number.POSITIVE_INFINITY;
+  const ts = Date.parse(dt);
+  return Number.isFinite(ts) ? ts : Number.POSITIVE_INFINITY;
+}
+
 async function fetchTodayTasks(){
 	const filter = 'overdue | today';
 	const data = await tdFetch('/tasks?filter=' + encodeURIComponent(filter));
 	console.log('Fetched today+overdue tasks:', data);
-	console.log('Number of tasks:', data ? data.length : 0);
-	if (data && data.length > 0) {
-		console.log('First task sample:', data[0]);
+	const list = Array.isArray(data) ? data.slice() : [];
+	list.sort((a,b) => getDueTimestamp(a) - getDueTimestamp(b));
+	console.log('Number of tasks (sorted):', list.length);
+	if (list.length > 0) {
+		console.log('First task sample:', list[0]);
 	}
-	return data || [];
+	return list;
 }
 
 async function preloadLabels(){
@@ -375,6 +388,25 @@ function renderCurrentTask(){
 
   // Always enable date controls (including for recurring)
   setDateControlsEnabled(true);
+
+  // Show/hide "Skip to next occurrence" for recurring only
+  const isRecurring = !!(t.due && t.due.is_recurring);
+  const skipInput = document.querySelector('input[name="dateChoice"][value="skip_next"]');
+  if (skipInput){
+    const skipLabel = skipInput.closest('label');
+    if (skipLabel){
+      if (isRecurring){
+        skipLabel.classList.remove('hidden');
+      } else {
+        // If it was selected, revert to Today
+        if (skipInput.checked){
+          const todayInput = document.querySelector('input[name="dateChoice"][value="today"]');
+          if (todayInput) todayInput.checked = true;
+        }
+        skipLabel.classList.add('hidden');
+      }
+    }
+  }
 }
 
 async function startFlow(){
@@ -431,39 +463,67 @@ async function submitCurrent(){
     await ensureLabelsExist(selectedLabels);
 
     // Compute explicit date (YYYY-MM-DD) for update
-    const targetISO = customDateISO ? customDateISO : presetChoiceToISO(dateChoice);
+    const targetISO = presetChoiceToISO(dateChoice);
     const isRecurring = !!(t.due && t.due.is_recurring);
 
     if (isRecurring) {
-      const tomorrowISO = presetChoiceToISO('tomorrow');
-
-      const updateBody = { due_date: targetISO };
-      if (selectedLabels.length) updateBody.labels = selectedLabels; // names
-
-      const createBody = {
-        content: t.content,
-        project_id: t.project_id,
-        due_date: tomorrowISO
-      };
-      if (selectedLabels.length) createBody.labels = selectedLabels;
-      if (t.parent_id) createBody.parent_id = t.parent_id;
-      if (!t.parent_id && t.section_id) createBody.section_id = t.section_id;
-
-      const [updateRes, copyRes] = await Promise.allSettled([
-        tdFetch('/tasks/' + idStr, { method: 'POST', body: updateBody }),
-        tdFetch('/tasks', { method: 'POST', body: createBody })
-      ]);
-
-      console.log('Recurring parallel results:', updateRes, copyRes);
-
-      if (updateRes.status === 'rejected' && copyRes.status === 'rejected'){
-        throw new Error('Both recurring updates failed');
+      // Recurring rules
+      if (dateChoice === 'skip_next'){
+        // Update original to tomorrow so Todoist advances to the next occurrence; no duplicate
+        try {
+          const tomorrowISO = presetChoiceToISO('tomorrow');
+          const updateBody = { due_date: tomorrowISO };
+          if (selectedLabels.length) updateBody.labels = selectedLabels;
+          await tdFetch('/tasks/' + idStr, { method: 'POST', body: updateBody });
+          if (statusEl) statusEl.textContent = 'Updated ✔';
+          idx += 1;
+          if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+          return;
+        } catch (e) {
+          console.error('Skip to next (update) failed:', e);
+          if (statusEl) statusEl.textContent = 'Update failed: ' + e.message;
+          return;
+        }
       }
 
-      if (statusEl) statusEl.textContent = 'Updated ✔';
-      idx += 1;
-      if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
-      return;
+      if (dateChoice === 'today'){
+        // Update original to today; no duplicate
+        try {
+          const todayISO = presetChoiceToISO('today');
+          const updateBody = { due_date: todayISO };
+          if (selectedLabels.length) updateBody.labels = selectedLabels;
+          await tdFetch('/tasks/' + idStr, { method: 'POST', body: updateBody });
+          if (statusEl) statusEl.textContent = 'Updated ✔';
+          idx += 1;
+          if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+          return;
+        } catch (e) {
+          console.error('Set today (update) failed:', e);
+          if (statusEl) statusEl.textContent = 'Update failed: ' + e.message;
+          return;
+        }
+      }
+
+      // Other presets (tomorrow, next Mon–Sun): create a one-off duplicate only, do not update original
+      try {
+        const createBody = {
+          content: t.content,
+          project_id: t.project_id,
+          due_date: targetISO
+        };
+        if (selectedLabels.length) createBody.labels = selectedLabels;
+        if (t.parent_id) createBody.parent_id = t.parent_id;
+        if (!t.parent_id && t.section_id) createBody.section_id = t.section_id;
+        await tdFetch('/tasks', { method: 'POST', body: createBody });
+        if (statusEl) statusEl.textContent = 'Updated ✔';
+        idx += 1;
+        if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+        return;
+      } catch (e) {
+        console.error('Create duplicate for preset failed:', e);
+        if (statusEl) statusEl.textContent = 'Update failed: ' + e.message;
+        return;
+      }
     }
 
     // Non-recurring: update due_date and labels directly
@@ -487,6 +547,13 @@ async function submitCurrent(){
 function skipCurrent(){
   idx += 1;
   if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+}
+
+async function completeTask(idStr){
+  await tdFetch('/tasks/' + idStr + '/close', { method: 'POST' });
+}
+async function deleteTask(idStr){
+  await tdFetch('/tasks/' + idStr, { method: 'DELETE' });
 }
 
 // Events
@@ -562,6 +629,38 @@ if (backHomeBtn){
     cameFromSearch = false;
     if (searchList) searchList.innerHTML = '';
     show(scrStart);
+  });
+}
+if (deleteTaskBtn){
+  deleteTaskBtn.addEventListener('click', async function(){
+    const t = tasks[idx];
+    if (!t) return;
+    const idStr = String(t.id);
+    try{
+      if (statusEl) statusEl.textContent = 'Deleting…';
+      await deleteTask(idStr);
+      if (statusEl) statusEl.textContent = 'Deleted ✔';
+      idx += 1;
+      if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+    }catch(e){
+      if (statusEl) statusEl.textContent = 'Delete failed: ' + e.message;
+    }
+  });
+}
+if (doneTaskBtn){
+  doneTaskBtn.addEventListener('click', async function(){
+    const t = tasks[idx];
+    if (!t) return;
+    const idStr = String(t.id);
+    try{
+      if (statusEl) statusEl.textContent = 'Completing…';
+      await completeTask(idStr);
+      if (statusEl) statusEl.textContent = 'Completed ✔';
+      idx += 1;
+      if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+    }catch(e){
+      if (statusEl) statusEl.textContent = 'Complete failed: ' + e.message;
+    }
   });
 }
 
