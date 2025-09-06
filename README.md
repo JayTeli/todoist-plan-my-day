@@ -1,145 +1,142 @@
-# 📅 Todoist Daily Planner — Chrome Extension
+# Todoist – Plan My Day (Chrome Extension)
 
-A Chrome Extension that helps you **plan your day in Todoist**.
-Instead of juggling dozens of tasks, this extension pulls today’s tasks into a step-by-step flow where you can **reschedule, reprioritize, and tag tasks** quickly — so you start each day with a clear plan.
+A lightweight Chrome Extension (Manifest V3) to plan your day with Todoist.
 
----
+- Review overdue and today’s tasks one-by-one
+- Quickly reschedule with convenient presets (Today, Tomorrow, next Mon–Sun)
+- Add labels as you go (auto-creates missing labels)
+- Search active tasks by keyword and jump into the same review flow
 
-## ✨ Features
 
-* **🔑 Seamless Todoist integration**
+## Screenshots
 
-  * Paste your API token once (stored safely in `chrome.storage.sync`).
-  * Tasks are pulled in real time from your Todoist account.
+Add your screenshots to the `docs/` folder with the following filenames (or update the paths below):
 
-* **📋 Daily task review**
+- Home screen with features
+  
+  ![Home](docs/home.png)
 
-  * Fetches all tasks scheduled for **Today**.
-  * Shows them one by one, so you can focus on decisions instead of a long list.
+- Task review screen
+  
+  ![Task Review](docs/review.png)
 
-* **📆 Rescheduling made simple**
+- Search keyword entry (home)
+  
+  ![Search](docs/search.png)
 
-  * Quickly move tasks to:
+- Search results list
+  
+  ![Search Results](docs/search-results.png)
 
-    * **Today**
-    * **Tomorrow**
-    * **Next Tuesday**
-    * **Next Saturday**
-  * Or pick a **Custom Date** via calendar picker.
 
-* **🏷️ Smart label grouping**
+## Features
 
-  * Assign multiple labels while reviewing:
+- Plan my day
+  - Fetches both overdue and today’s active tasks from Todoist.
+  - Reviews tasks one at a time with a consistent UI.
+  - Reschedule presets: Today, Tomorrow, next Mon, next Tue, next Wed, next Thu, next Fri, next Sat, next Sun.
+  - Project name is shown (not just the ID).
+  - Labels can be applied/updated from checkboxes.
+    - If a selected label doesn’t exist, it’s created first and then applied.
+  - Previous/Skip controls:
+    - Previous returns to the prior task in the planning flow.
+    - If a task was opened from Search, Previous returns to Search results instead of the prior task.
+  - For recurring tasks:
+    - The extension updates the recurring task’s `due_date` to your chosen date and, in parallel, creates a one-off copy for tomorrow with the same labels. This avoids fighting Todoist’s recurrence engine and preserves the recurring chain.
 
-    * **Urgency**: `urgent-now`, `urgent-today`, `urgent-soon`
-    * **Pressure**: `high-pressure`, `low-pressure`
-    * **Quick wins**: `low-hanging-fruit`
+- Search tasks
+  - Keyword search entry on the home screen.
+  - Shows a loading message while searching.
+  - Lists up to 50 active tasks that contain the keyword.
+  - Clicking a result opens the same task review flow.
+  - Pressing Enter in the search field triggers the same action as clicking Search.
+  - Back button returns to the home screen; Previous (from a searched task) returns to the Search results list.
+  - Uses `https://app.todoist.com/api/v1/completed/search?query=<keyword>` to help resolve matching context, and then filters active tasks client-side to display only active results.
+  - Includes a REST fallback and a client-side filter fallback if the search endpoint fails.
 
-* **🔁 Recurring task support**
+- Polished home UI
+  - Clear separation between the Plan and Search features.
+  - Small app icon in the page title.
 
-  * Handles recurring tasks correctly with Todoist’s `due_string` rules.
-  * Uses `/postpone` for reliable “Tomorrow” rescheduling.
 
-* **✅ Smooth workflow**
-
-  * Submit updates → extension calls Todoist API to reschedule and relabel.
-  * Move through all tasks until your list is clear.
-  * Finish with a motivational screen: **“We are ready for the day! ✨”**
-
----
-
-## 📸 Screenshots
-
-*(replace placeholders with actual captures from Chrome once extension runs)*
-
-### 1. Start Screen
-
-![Start screen](./screenshots/start.png)
-
-### 2. Task Review
-
-![Task review screen](./screenshots/task-review.png)
-
-### 3. Custom Date Picker
-
-![Custom date picker](./screenshots/custom-date.png)
-
-### 4. Labels Grouped
-
-![Labels grouped](./screenshots/labels.png)
-
-### 5. All Done!
-
-![Done screen](./screenshots/done.png)
-
----
-
-## 🛠️ Installation
+## Installation
 
 1. Clone or download this repository.
+2. Open Chrome and go to `chrome://extensions`.
+3. Enable "Developer mode" (top right).
+4. Click "Load unpacked" and select the `todoist-planner` folder.
 
-   ```bash
-   git clone https://github.com/yourusername/todoist-daily-planner.git
-   ```
-2. Open **Chrome** → go to `chrome://extensions/`.
-3. Enable **Developer mode** (top right).
-4. Click **Load unpacked** and select the project folder.
-5. The extension icon will appear in your Chrome toolbar.
 
----
+## First-time Setup
 
-## ⚙️ Setup
+- When the popup opens, paste your Todoist API token (Settings → Integrations → API token). The token is saved in `chrome.storage.sync` only.
+- Click "Start planning" to begin.
 
-1. Open the extension popup.
-2. On first use, paste your **Todoist API token**:
 
-   * Find it in Todoist → Settings → Integrations → API token.
-3. Click **Plan my day**.
+## Permissions
 
----
+The extension uses the following permissions:
 
-## 🚀 Usage
+- `storage` – to save your Todoist API token locally in Chrome sync storage
+- `host_permissions` –
+  - `https://api.todoist.com/*` for the REST API (tasks, labels, projects)
+  - `https://app.todoist.com/*` for the search helper endpoint
 
-* Review each task in turn.
-* Choose a new **date** (preset or custom).
-* Assign one or more **labels**.
-* Hit **Submit**.
-* Continue until all tasks are processed.
 
-At the end, you’ll see a success message telling you your day is ready.
+## How it Works (APIs)
 
----
+- Tasks
+  - Fetch overdue + today: `GET /rest/v2/tasks?filter=overdue | today`
+  - Update task (date/labels): `POST /rest/v2/tasks/{id}` with `{ due_date, labels }`
+  - Create one-off task: `POST /rest/v2/tasks` with `{ content, project_id, due_date, labels }`
 
-## 📂 Project Structure
+- Labels
+  - Preload: `GET /rest/v2/labels`
+  - Create missing: `POST /rest/v2/labels` with `{ name }`
 
-```
-.
-├── manifest.json        # Chrome Extension manifest (MV3)
-├── popup.html           # Main UI
-├── popup.css            # Styling
-├── popup.js             # Logic + Todoist integration
-├── icons/               # Extension icons (16, 32, 48, 128px)
-└── README.md            # This file
-```
+- Projects
+  - Preload: `GET /rest/v2/projects` (used to display project names)
 
----
+- Search (hybrid)
+  - App endpoint: `GET https://app.todoist.com/api/v1/completed/search?query=<keyword>`
+  - Then fetch active tasks and filter client-side to show only active matches (up to 50).
 
-## 🔐 Security Notes
 
-* The API token is stored locally in Chrome’s `storage.sync` (never uploaded).
-* This extension talks directly to Todoist’s API over HTTPS.
+## Recurring Tasks – Date Changes
 
----
+- Recurring tasks frequently snap back to the next recurrence when their date is changed directly. To avoid confusion while still supporting your workflow, this extension:
+  - Updates the recurring task’s `due_date` to your selected preset, and
+  - In parallel, creates a one-off copy due tomorrow with the same labels.
 
-## 🛣️ Roadmap
+This preserves the recurring chain while also giving you a dated task to act on.
 
-* [ ] Dark mode UI
-* [ ] Keyboard shortcuts
-* [ ] Support for custom label sets
-* [ ] Analytics: show how many tasks you moved per day/week
 
----
+## Development
 
-## 📜 License
+- Stack: Plain HTML/CSS/JS, Manifest V3
+- Files of interest:
+  - `todoist-planner/popup.html` – Popup UI
+  - `todoist-planner/popup.css` – Styling
+  - `todoist-planner/popup.js` – All logic for planning, search, and API calls
+  - `todoist-planner/manifest.json` – MV3 manifest
 
-MIT License © 2025 \[Jay Teli]
+- Token storage: `chrome.storage.sync`
+- No background service worker required for this popup-only workflow.
+
+
+## Privacy
+
+- Your Todoist API token is stored locally in `chrome.storage.sync` on your own browser profile.
+- No analytics or tracking are included.
+
+
+## Troubleshooting
+
+- Seeing project ID instead of project name? It’s likely the project list hasn’t finished loading. The extension preloads projects; re-opening the popup should resolve it quickly.
+- Search returns no results: The extension falls back to client-side filtering of active tasks; try a broader keyword.
+- Recurring task date “snaps back”: This is Todoist’s recurrence behavior. The extension also creates a one-off dated copy to preserve your intent for immediate action.
+
+
+## License
+
+MIT
