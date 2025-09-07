@@ -26,6 +26,7 @@ const searchInput = document.getElementById('searchInput');
 const searchBtn = document.getElementById('searchBtn');
 const searchList = document.getElementById('searchList');
 const backHomeBtn = document.getElementById('backHome');
+const searchHeader = document.getElementById('searchHeader');
 
 
 // Task UI
@@ -48,6 +49,12 @@ let cameFromSearch = false; // whether current task view was opened from search
 function show(el){
   [scrStart, scrToken, scrTask, scrDone, scrSearch].forEach(s => s && s.classList.add('hidden'));
   el && el.classList.remove('hidden');
+  // Widen popup only for task review to reduce vertical overflow
+  if (el === scrTask) {
+    document.body.classList.add('is-task');
+  } else {
+    document.body.classList.remove('is-task');
+  }
 }
 function qAll(sel){ return Array.from(document.querySelectorAll(sel)); }
 
@@ -321,15 +328,25 @@ async function searchTasksByKeyword(keyword){
 function renderSearchResults(list){
 	searchList.innerHTML = '';
 	if (!list.length){
+		searchHeader.innerHTML = 'Search results <span class="count">(0)</span>';
 		searchList.innerHTML = '<p class="muted">No matching active tasks found.</p>';
 		return;
 	}
+	searchHeader.innerHTML = `Search results <span class="count">(${list.length})</span>`;
 	for (const t of list){
 		const div = document.createElement('div');
 		div.className = 'task-card';
 		const pname = t.project_id ? (projectIdToName.get(String(t.project_id)) || t.project_id) : '';
 		const due = (t.due && t.due.string) ? t.due.string : '';
-		div.innerHTML = `<div class="task-title">${t.content || '(Untitled)'}${pname ? ' • ' + pname : ''}</div><div class="task-meta">${due}</div>`;
+		const labels = Array.isArray(t.labels) ? t.labels : [];
+		const urgency = labels.find(l => ['urgent-now','urgent-today','urgent-soon'].includes(String(l).toLowerCase()));
+		const pressure = labels.find(l => ['high-pressure','low-pressure'].includes(String(l).toLowerCase()));
+		const lhf = labels.find(l => String(l).toLowerCase() === 'low-hanging-fruit');
+		const urgencyBadge = urgency ? `<span class="badge red">${urgency}</span>` : '';
+		const pressureBadge = pressure ? `<span class="badge amber">${pressure}</span>` : '';
+		const lhfBadge = lhf ? `<span class="badge green">${lhf}</span>` : '';
+		const projectPill = pname ? `<span class="pill">${pname}</span>` : '';
+		div.innerHTML = `<div class="task-title">${projectPill}<span>${t.content || '(Untitled)'}</span></div><div class="task-meta">${due} ${urgencyBadge} ${pressureBadge} ${lhfBadge}</div>`;
 		div.addEventListener('click', async () => {
 			cameFromSearch = true;
 			await ensureProjectsLoaded();
@@ -366,14 +383,14 @@ function renderCurrentTask(){
   } else {
     taskTitleEl.textContent = titleText;
   }
-  const due = (t.due && t.due.string) ? ('Due: ' + t.due.string) : 'No due date';
-  const recurring = (t.due && t.due.is_recurring) ? ' • Recurring' : '';
-  let project = '';
-  if (t.project_id) {
-    const pname = projectIdToName.get(String(t.project_id));
-    project = ' • Project: ' + (pname || t.project_id);
-  }
-  taskMetaEl.textContent = due + recurring + project;
+  const dueStr = (t.due && t.due.string) ? t.due.string : null;
+  const isRecurring = !!(t.due && t.due.is_recurring);
+  const pname = t.project_id ? (projectIdToName.get(String(t.project_id)) || t.project_id) : null;
+  const chips = [];
+  if (pname) chips.push(`<span class="chip blue">${pname}</span>`);
+  if (dueStr) chips.push(`<span class="chip amber">Due: ${dueStr}</span>`);
+  if (isRecurring) chips.push(`<span class="chip purple">Recurring</span>`);
+  taskMetaEl.innerHTML = chips.join(' ');
 
   // Reset UI
   qAll('input[name="dateChoice"]').forEach(r => { r.checked = (r.value === 'today'); });
@@ -438,7 +455,6 @@ function renderCurrentTask(){
   setDateControlsEnabled(true);
 
   // Show/hide "Skip to next occurrence" for recurring only
-  const isRecurring = !!(t.due && t.due.is_recurring);
   const skipInput = document.querySelector('input[name="dateChoice"][value="skip_next"]');
   if (skipInput){
     const skipLabel = skipInput.closest('label');

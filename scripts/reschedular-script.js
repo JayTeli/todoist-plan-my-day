@@ -6,7 +6,7 @@
  * - Final tie-break: created_at oldest first
  * - Assign unique ranks 1..N in sorted order (no duplicates)
  * - Email report with columns: rank, labels, task, project, due time, due string
- * - Top 15 get due_datetime: now+5m, +15m, +25m... (10m gaps); others strip time
+ * - Top 10 get due_datetime: now+5m, +15m, +25m... (10m gaps); others strip time
  */
 
 const TODOIST_BASE = 'https://api.todoist.com/rest/v2';
@@ -26,7 +26,7 @@ const CATEGORY_ORDER = [
   // 6 => all others (no recognized labels)
 ];
 
-const TOP_N = 15; // how many to time-block
+const TOP_N = 10; // how many to time-block
 
 // ============= Entry point =============
 function run() {
@@ -284,7 +284,8 @@ function buildUpdates_(ordered) {
       updates.push({
         id: t.id,
         body: { due_datetime: toIsoWithTz_(slot, TARGET_TZ) },
-        note: 'time-block'
+        note: 'time-block',
+        slot: new Date(slot.getTime())
       });
     }
 
@@ -385,6 +386,38 @@ function toIsoWithTz_(instant, tz) {
 }
 
 
+// Create a reminder using Sync API: relative 0 minutes (at due time)
+function createReminderRelativeAtDue_(token, taskId) {
+  const syncUrl = 'https://api.todoist.com/sync/v9/sync';
+  const command = {
+    type: 'reminder_add',
+    uuid: Utilities.getUuid(),
+    temp_id: Utilities.getUuid(),
+    args: {
+      type: 'relative',
+      item_id: String(taskId),
+      minute_offset: 0,
+      is_deleted: false
+    }
+  };
+  const payload = {
+    resource_types: ['reminders'],
+    sync_token: '*',
+    commands: [command]
+  };
+  const res = UrlFetchApp.fetch(syncUrl, {
+    method: 'post',
+    muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    payload: JSON.stringify(payload)
+  });
+  if (res.getResponseCode() >= 200 && res.getResponseCode() < 300) {
+    Logger.log('   └ reminder (relative 0) set for task %s', taskId);
+  } else {
+    Logger.log('   └ failed reminder for %s: %s %s', taskId, res.getResponseCode(), res.getContentText());
+  }
+}
+
 function applyUpdates_(token, updates) {
   if (!updates.length) {
     Logger.log('No updates needed.');
@@ -397,6 +430,11 @@ function applyUpdates_(token, updates) {
     try {
       todoistFetch_(token, 'POST', '/tasks/' + u.id, u.body);
       Logger.log(' [%s/%s] OK %s (%s)', idx + 1, updates.length, u.id, u.note);
+
+      // If we set a due_datetime, also create a reminder at the due time via Sync API
+      if (u.body && u.body.due_datetime) {
+        createReminderRelativeAtDue_(token, u.id);
+      }
     } catch (e) {
       Logger.log(' [%s/%s] FAIL %s (%s): %s', idx + 1, updates.length, u.id, u.note, e.message);
     }

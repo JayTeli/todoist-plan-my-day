@@ -136,3 +136,76 @@ This preserves the recurring chain while also giving you a dated task to act on.
 ## License
 
 MIT
+
+## Google Apps Script Automation (Hourly Planner + Email)
+
+Use the included Apps Script to automatically rank and time‑block your top Todoist tasks every 30 minutes (aligned to :00 and :30 in IST), email a report, and set a Todoist reminder at the task’s due time.
+
+### What it does
+- **Ranks tasks**: Fetches active tasks due “today | overdue”, applies priority rules, assigns unique ranks starting at 1.
+- **Time‑blocks top tasks**: **Top 10** tasks get due times starting at “run time + 5 minutes” in `Asia/Kolkata`, then every 10 minutes; others keep the date but have their time removed.
+- **Emails a report**: Sends a ranked table to your inbox.
+- **Sets Todoist reminders**: For each updated task, creates a reminder at the exact due time (relative 0 minutes).
+
+### Files
+- Script source: `todoist-planner/scripts/reschedular-script.js`
+
+### One‑time setup (Apps Script)
+1. Go to `script.google.com`, create a new standalone project.
+2. In the editor, File → Project properties → set **Time zone** to `Asia/Kolkata`.
+3. Create a file named `reschedular-script.js` and paste the contents of `todoist-planner/scripts/reschedular-script.js`.
+4. Open the script and configure constants near the top:
+   - `TOKEN_PROP_KEY`: set to your Todoist REST API token string (from Todoist → Settings → Integrations → API token).
+   - `EMAIL_TO`: set your email address for the report.
+   - `TARGET_TZ`: keep as `Asia/Kolkata` (or change to your IANA timezone).
+   - Optional: `TOP_N` (default 10) to control how many tasks get time‑blocked.
+5. Click Run → select `run` → authorize when prompted.
+   - Check the execution logs for a line like: “Planner first slot (IST): now=… → first=…”. The “first” time should be 5 minutes after “now”.
+   - You should also receive the email report.
+
+### Scheduling every 30 minutes, aligned to :00 and :30 (IST)
+- In Apps Script editor, left sidebar → **Triggers** → **Add Trigger** twice:
+  - Trigger 1: Function `run`, Event source `Time-driven`, Type `Hour timer`, Every hour, Minute `0`.
+  - Trigger 2: Function `run`, Event source `Time-driven`, Type `Hour timer`, Every hour, Minute `30`.
+- Ensure your project’s Time zone is `Asia/Kolkata` so triggers fire aligned to IST.
+
+Optionally, you can create triggers programmatically by adding this function and running it once:
+
+```javascript
+function setupTriggers() {
+  // Remove existing time-based triggers for 'run'
+  ScriptApp.getProjectTriggers().forEach(tr => {
+    if (tr.getHandlerFunction() === 'run' && tr.getEventType() === ScriptApp.EventType.CLOCK) {
+      ScriptApp.deleteTrigger(tr);
+    }
+  });
+
+  // Hourly at :00 IST
+  ScriptApp.newTrigger('run')
+    .timeBased()
+    .everyHours(1)
+    .nearMinute(0)
+    .inTimezone('Asia/Kolkata')
+    .create();
+
+  // Hourly at :30 IST
+  ScriptApp.newTrigger('run')
+    .timeBased()
+    .everyHours(1)
+    .nearMinute(30)
+    .inTimezone('Asia/Kolkata')
+    .create();
+}
+```
+
+### Permissions
+- Uses `UrlFetchApp` to call the Todoist REST and Sync APIs.
+- Uses `MailApp` to send the report email.
+
+### Notes and troubleshooting
+- **Reminders**: The script adds a Todoist reminder at the exact due time (relative, 0 minutes). Re‑running may add additional reminders for the same task/time; a dedupe step can be added if needed.
+- **Timezone**: Set project Time zone to `Asia/Kolkata` and keep `TARGET_TZ` consistent. The email and schedule use this timezone.
+- **First slot**: Computed as “execution now + 5 minutes”. Check logs for “Planner first slot (IST)” to verify alignment.
+- **Rate limiting**: The script sleeps between requests to stay under Todoist limits.
+- **API token security**: Do not commit your token. Keep it in the script constant or adapt the script to read from project properties.
+

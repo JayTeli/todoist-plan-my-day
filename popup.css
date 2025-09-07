@@ -2,7 +2,8 @@
     --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --card:#f8fafc; --accent:#2563eb;
   }
   *{ box-sizing:border-box; }
-  body{ margin:0; width:420px; font:14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--fg); background:var(--bg);} 
+  body{ margin:0; width:520px; font:14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--fg); background:var(--bg); overflow-x:hidden; }
+  body.is-task{ width:700px; }
   .wrap{ padding:14px; }
   .screen{ display:block; }
   .hidden{ display:none !important; }
@@ -11,27 +12,75 @@
   .muted{ color:var(--muted); }
   .label{ font-weight:700; margin-bottom:6px; }
   .row{ display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap; }
-  button{ background:var(--accent); color:#fff; border:none; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600; }
+  button{ background:var(--accent); color:#fff; border:none; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600; box-shadow:0 1px 0 rgba(0,0,0,.05); }
   button.secondary{ background:#e2e8f0; color:#111; }
+  button.secondary:hover{ background:#e5e7eb; }
+  button:hover{ filter:brightness(0.98); }
   input[type=password], input[type=text]{ width:100%; padding:10px; border:1px solid var(--border); border-radius:10px; }
   
   .task-card{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px; margin-bottom:10px; }
-  .task-title{ font-weight:700; }
-  .task-meta{ font-size:12px; color:var(--muted); }
+  body.is-task .task-card{ padding:10px 12px; margin-bottom:8px; }
+  .task-title{ font-weight:800; font-size:15px; display:flex; align-items:center; gap:8px; }
+  body.is-task .task-title{ font-size:14px; }
+  .task-title a{ color:#0f172a; text-decoration:none; }
+  .task-title a:hover{ text-decoration:underline; }
+  .task-meta{ font-size:12px; color:var(--muted); display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
   
   .radios, .checks{ display:grid; gap:8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.is-task .radios, body.is-task .checks{ gap:6px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body.is-task .radios{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .group{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px; margin:10px 0; }
+  body.is-task .group{ padding:8px; margin:6px 0; }
+  .group .label{ color:#334155; letter-spacing:.2px; }
+  .group .label::after{ content:''; display:block; height:2px; width:24px; background:linear-gradient(90deg, #93c5fd, #60a5fa); border-radius:2px; margin-top:4px; opacity:.7; }
+ 
+   /* Tile-style radios and checks */
+   .radios label, .checks label{
+     display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:#fff; cursor:pointer;
+     transition:background .12s ease, border-color .12s ease, box-shadow .12s ease;
+   }
+  body.is-task .radios label, body.is-task .checks label{ padding:6px 8px; }
+  /* Unified radio/checkbox appearance (native controls with green accent) */
+  .radios label{ position:static; padding-left:10px; }
+  .checks label:has(input[type="radio"]){ position:static; padding-left:10px; }
+  .radios input[type="radio"], .checks input[type="radio"]{ appearance:auto; -webkit-appearance:auto; accent-color:#16a34a; }
+  .checks input[type="checkbox"]{ appearance:auto; -webkit-appearance:auto; accent-color:#16a34a; }
+  .radios label:hover, .checks label:hover{ background:#f8fafc; border-color:#cbd5e1; }
+  .radios label:has(input:checked), .checks label:has(input:checked){
+    background:#ecfdf5; border-color:#86efac; box-shadow:0 0 0 2px rgba(134,239,172,.35) inset;
+  }
   
   .calendar-row{ display:flex; align-items:center; gap:10px; margin-top:8px; }
   .icon-btn{ display:inline-flex; align-items:center; gap:6px; background:#fff; color:#111; border:1px solid var(--border); padding:6px 10px; border-radius:8px; }
   #customDateLabel{ font-size:12px; }
   .status{ min-height:20px; font-size:12px; color:var(--muted); margin-top:6px; }
+  /* Keep action row sticky only on the task screen to avoid home scroll issues */
+  #screen-task #actionRow{ position:sticky; bottom:0; background:var(--bg); padding-top:8px; }
+  body.is-task #screen-task #actionRow{ padding-top:6px; padding-bottom:4px; }
+  body.is-task #screen-task #actionRow button{ padding:6px 10px; font-size:13px; }
   .feature{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; margin:12px 0; }
   .feature-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
   .feature-title{ font-weight:700; }
   .feature-subtitle{ color:var(--muted); font-size:12px; }
-  .list .task-card{ cursor:pointer; }
+  .list .task-card{ cursor:pointer; transition:transform .1s ease, box-shadow .1s ease, border-color .1s ease; border-left:4px solid transparent; }
   .list .task-card + .task-card{ margin-top:8px; }
+  .list .task-card:hover{ transform:translateY(-1px); box-shadow:0 2px 8px rgba(0,0,0,.06); border-color:#93c5fd; background:#eef6ff; }
+  .list .task-title{ display:flex; align-items:center; gap:8px; }
+  .badge{ display:inline-block; font-size:11px; font-weight:700; padding:2px 6px; border-radius:999px; background:#e2e8f0; color:#111; }
+  .badge.red{ background:#fee2e2; color:#991b1b; }
+  .badge.amber{ background:#fef3c7; color:#92400e; }
+  .badge.green{ background:#dcfce7; color:#065f46; }
+  .badge.blue{ background:#dbeafe; color:#1e3a8a; }
+  .pill{ font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); background:#fff; }
+  #searchHeader{ display:flex; align-items:center; justify-content:space-between; }
+  #searchHeader .count{ font-size:12px; color:var(--muted); }
+ 
+  /* Chips for task meta on review screen */
+  .chip{ display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:4px 8px; border-radius:999px; border:1px solid var(--border); background:#fff; color:#0f172a; }
+  body.is-task .chip{ font-size:10px; padding:3px 6px; }
+  .chip.blue{ background:#eff6ff; border-color:#bfdbfe; color:#1e3a8a; }
+  .chip.purple{ background:#f3e8ff; border-color:#e9d5ff; color:#5b21b6; }
+  .chip.amber{ background:#fffbeb; border-color:#fde68a; color:#92400e; }
   .header-title{ display:flex; align-items:center; gap:8px; }
   .header-title img{ border-radius:4px; }
   .row .sm{ padding:6px 10px; border-radius:8px; font-size:13px; }

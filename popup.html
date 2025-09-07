@@ -58,7 +58,6 @@
           <div class="label">Date</div>
           <div class="radios">
             <label><input type="radio" name="dateChoice" value="today" checked /> Today</label>
-            <label><input type="radio" name="dateChoice" value="skip_next" /> Skip to next occurrence</label>
             <label><input type="radio" name="dateChoice" value="tomorrow" /> Tomorrow</label>
             <label><input type="radio" name="dateChoice" value="next_mon" /> next Mon</label>
             <label><input type="radio" name="dateChoice" value="next_tue" /> next Tues</label>
@@ -69,6 +68,7 @@
             <label><input type="radio" name="dateChoice" value="next_sun" /> next Sun</label>
             <label><input type="radio" name="dateChoice" value="next_28th" /> next 28th</label>
             <label><input type="radio" name="dateChoice" value="next_1st" /> next 1st</label>
+            <label><input type="radio" name="dateChoice" value="skip_next" /> Skip to next occurrence</label>
           </div>
         </div>
 
@@ -97,7 +97,7 @@
           </div>
         </div>
 
-        <div class="row">
+        <div class="row" id="actionRow">
           <button id="submitUpdate">Update</button>
           <button id="prevTask" class="secondary">Previous</button>
           <button id="skipTask" class="secondary">Skip</button>
@@ -116,7 +116,7 @@
 
       <!-- Screen 4: Search results -->
       <section id="screen-search" class="screen hidden">
-        <h1>Search results</h1>
+        <h1 id="searchHeader">Search results</h1>
         <div id="searchList" class="list"></div>
         <div class="row">
           <button id="backHome" class="secondary">Back</button>
