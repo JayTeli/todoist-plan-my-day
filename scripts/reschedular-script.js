@@ -267,8 +267,8 @@ function buildUpdates_(ordered) {
   const now = new Date();
   const todayStr = localYMD_(now, TARGET_TZ);
 
-  // First slot: execution time + 5 minutes (instant arithmetic), display/log in TARGET_TZ
-  let slot = new Date(now.getTime() + 5 * 60000);
+  // First slot: execution time + 15 minutes (instant arithmetic), display/log in TARGET_TZ
+  let slot = new Date(now.getTime() + 15 * 60000);
   Logger.log('Planner first slot (IST): now=%s -> first=%s',
              Utilities.formatDate(now, TARGET_TZ, 'yyyy-MM-dd HH:mm'),
              Utilities.formatDate(slot, TARGET_TZ, 'yyyy-MM-dd HH:mm'));
