@@ -11,7 +11,7 @@
 
 const TODOIST_BASE = 'https://api.todoist.com/rest/v2';
 const TOKEN_PROP_KEY = '';
-const EMAIL_TO = 'kooljay999@gmail.com';
+const EMAIL_TO = '';
 const TARGET_TZ = 'Asia/Kolkata'; // use your desired IANA timezone
 
 
