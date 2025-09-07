@@ -17,6 +17,7 @@ const submitUpdateBtn = document.getElementById('submitUpdate');
 const skipTaskBtn = document.getElementById('skipTask');
 const restartBtn = document.getElementById('restart');
 const statusEl = document.getElementById('status');
+const taskCounterEl = document.getElementById('taskCounter');
 const prevTaskBtn = document.getElementById('prevTask');
 const deleteTaskBtn = document.getElementById('deleteTask');
 const doneTaskBtn = document.getElementById('doneTask');
@@ -448,6 +449,13 @@ function renderCurrentTask(){
   // if (customDateLabel) customDateLabel.textContent = '';
   if (statusEl) statusEl.textContent = '';
 
+  // Update bottom-right counter (e.g., "1 of 60")
+  if (taskCounterEl){
+    const total = tasks.length || 0;
+    const current = Math.min(idx + 1, total);
+    taskCounterEl.textContent = total ? (current + ' of ' + total) : '';
+  }
+
   // Nav state: enable Previous if came from search, else based on idx
   if (prevTaskBtn) prevTaskBtn.disabled = cameFromSearch ? false : (idx <= 0);
 
@@ -540,19 +548,16 @@ async function submitCurrent(){
     if (isRecurring) {
       // Recurring rules
       if (dateChoice === 'skip_next'){
-        // Update original to tomorrow so Todoist advances to the next occurrence; no duplicate
+        // Best-practice for recurring tasks: complete current instance to advance to next
         try {
-          const tomorrowISO = presetChoiceToISO('tomorrow');
-          const updateBody = { due_date: tomorrowISO };
-          if (selectedLabels.length) updateBody.labels = selectedLabels;
-          await tdFetch('/tasks/' + idStr, { method: 'POST', body: updateBody });
-          if (statusEl) statusEl.textContent = 'Updated ✔';
+          await tdFetch('/tasks/' + idStr + '/close', { method: 'POST' });
+          if (statusEl) statusEl.textContent = 'Skipped to next occurrence ✔';
           idx += 1;
           if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
           return;
         } catch (e) {
-          console.error('Skip to next (update) failed:', e);
-          if (statusEl) statusEl.textContent = 'Update failed: ' + e.message;
+          console.error('Skip to next (close) failed:', e);
+          if (statusEl) statusEl.textContent = 'Skip failed: ' + e.message;
           return;
         }
       }

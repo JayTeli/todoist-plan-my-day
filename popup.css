@@ -58,6 +58,7 @@
   #screen-task #actionRow{ position:sticky; bottom:0; background:var(--bg); padding-top:8px; }
   body.is-task #screen-task #actionRow{ padding-top:6px; padding-bottom:4px; }
   body.is-task #screen-task #actionRow button{ padding:6px 10px; font-size:13px; }
+  #taskCounter{ margin-left:auto; white-space:nowrap; }
   .feature{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; margin:12px 0; }
   .feature-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
   .feature-title{ font-weight:700; }
