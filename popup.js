@@ -408,10 +408,9 @@ function renderCurrentTask(){
   // Clear radios
   qAll('input[name="urgencyChoice"]').forEach(r => { r.checked = false; });
   qAll('input[name="pressureChoice"]').forEach(r => { r.checked = false; });
-  // Clear quick wins checkbox
-  qAll('.checks input[type=checkbox]').forEach(c => { c.checked = false; });
+  qAll('input[name="durationChoice"]').forEach(r => { r.checked = false; });
 
-  // Apply existing labels to radios/checkbox
+  // Apply existing labels to radios
   function checkIfHasLabel(labelName){
     const key = String(labelName).toLowerCase();
     if (existingLabelNames.has(key)) return true;
@@ -421,8 +420,8 @@ function renderCurrentTask(){
 
   const urgencyMap = ['urgent-now','urgent-today','urgent-soon'];
   const pressureMap = ['high-pressure','low-pressure'];
+  const durationMap = ['under-15m','15m-to-30m','30m-to-1h','1h-2h','2h-3h','over-3h'];
 
-  // Set urgency radio if any matches
   for (const u of urgencyMap){
     if (checkIfHasLabel(u)){
       const el = document.querySelector(`input[name="urgencyChoice"][value="${u}"]`);
@@ -430,7 +429,6 @@ function renderCurrentTask(){
       break;
     }
   }
-  // Set pressure radio if any matches
   for (const p of pressureMap){
     if (checkIfHasLabel(p)){
       const el = document.querySelector(`input[name="pressureChoice"][value="${p}"]`);
@@ -438,15 +436,15 @@ function renderCurrentTask(){
       break;
     }
   }
-  // Quick wins checkbox
-  if (checkIfHasLabel('low-hanging-fruit')){
-    const el = document.querySelector('.checks input[type=checkbox][value="low-hanging-fruit"]');
-    if (el) el.checked = true;
+  for (const d of durationMap){
+    if (checkIfHasLabel(d)){
+      const el = document.querySelector(`input[name="durationChoice"][value="${d}"]`);
+      if (el) el.checked = true;
+      break;
+    }
   }
 
   customDateISO = null;
-  // if (customDateInput) customDateInput.value = '';
-  // if (customDateLabel) customDateLabel.textContent = '';
   if (statusEl) statusEl.textContent = '';
 
   // Update bottom-right counter (e.g., "1 of 60")
@@ -535,7 +533,8 @@ async function submitCurrent(){
   if (uEl) selectedLabels.push(uEl.value);
   const pEl = document.querySelector('input[name="pressureChoice"]:checked');
   if (pEl) selectedLabels.push(pEl.value);
-  qAll('.checks input[type=checkbox]:checked').forEach(c => { if (c.value) selectedLabels.push(c.value); });
+  const dEl = document.querySelector('input[name="durationChoice"]:checked');
+  if (dEl) selectedLabels.push(dEl.value);
 
   try {
     // Ensure labels exist

@@ -1,8 +1,8 @@
 /**
  * Todoist hourly planner (Apps Script) + Email report — unique ranks starting at 1
  * - Fetch active tasks due "today | overdue"
- * - Order by category (urgent-now, low-hanging-fruit, urgent-today, high-pressure, low-pressure, urgent-soon, other)
- * - Within urgent-now: tasks with ALSO low-hanging-fruit come before urgent-now only
+ * - Group order: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon, other
+ * - Within each group, sub-group by duration: under-15m, 15m-to-30m, 30m-to-1h, 1h-2h, 2h-3h, over-3h
  * - Final tie-break: created_at oldest first
  * - Assign unique ranks 1..N in sorted order (no duplicates)
  * - Email report with columns: rank, labels, task, project, due time, due string
@@ -18,12 +18,21 @@ const TARGET_TZ = 'Asia/Kolkata'; // use your desired IANA timezone
 // Category order (lower number = earlier in list)
 const CATEGORY_ORDER = [
   'urgent-now',         // 0
-  'low-hanging-fruit',  // 1
-  'urgent-today',       // 2
-  'high-pressure',      // 3
-  'low-pressure',       // 4
-  'urgent-soon'         // 5
-  // 6 => all others (no recognized labels)
+  'urgent-today',       // 1
+  'high-pressure',      // 2
+  'low-pressure',       // 3
+  'urgent-soon'         // 4
+  // 5 => all others (no recognized labels)
+];
+
+// Duration sub-group order within a category
+const DURATION_ORDER = [
+  'under-15m',
+  '15m-to-30m',
+  '30m-to-1h',
+  '1h-2h',
+  '2h-3h',
+  'over-3h'
 ];
 
 const TOP_N = 10; // how many to time-block
@@ -127,11 +136,18 @@ function getTaskLabelNames_(task, idToLabelName) {
 }
 
 function computeCategoryIndex_(labelNamesLower) {
-  // Return 0..5 based on CATEGORY_ORDER, else 6 (other)
+  // Return 0..4 based on CATEGORY_ORDER, else 5 (other)
   for (let idx = 0; idx < CATEGORY_ORDER.length; idx++) {
     if (labelNamesLower.indexOf(CATEGORY_ORDER[idx]) !== -1) return idx;
   }
-  return 6;
+  return 5;
+}
+
+function computeDurationIndex_(labelNamesLower) {
+  for (let idx = 0; idx < DURATION_ORDER.length; idx++) {
+    if (labelNamesLower.indexOf(DURATION_ORDER[idx]) !== -1) return idx;
+  }
+  return DURATION_ORDER.length; // unknown durations go last
 }
 
 function decorateTask_(t, idToLabelName, projectIdx) {
@@ -139,8 +155,7 @@ function decorateTask_(t, idToLabelName, projectIdx) {
   const labelsLower = labelNames.map(s => s.toLowerCase());
 
   const categoryIndex = computeCategoryIndex_(labelsLower);
-  const hasUrgentNow = labelsLower.indexOf('urgent-now') !== -1;
-  const hasLowHanging = labelsLower.indexOf('low-hanging-fruit') !== -1;
+  const durationIndex = computeDurationIndex_(labelsLower);
 
   const createdAt = t.created_at || null;
   const projectName = projectIdx.get(String(t.project_id)) || '';
@@ -149,8 +164,8 @@ function decorateTask_(t, idToLabelName, projectIdx) {
     raw: t,
     labelNames,                // for email display (comma-separated)
     labelsLower,               // for comparisons
-    categoryIndex,             // 0 best category, 6 is "other"
-    urgentNowHasLHF: hasUrgentNow && hasLowHanging, // special tie-break flag
+    categoryIndex,             // 0 best category, 5 is "other"
+    durationIndex,             // 0..5 or DURATION_ORDER.length if none
     createdAt,                 // final tie-break
     projectName,
     rank: null                 // will be assigned 1..N later
@@ -159,22 +174,14 @@ function decorateTask_(t, idToLabelName, projectIdx) {
 
 /**
  * Order rules:
- * 1) categoryIndex ASC (urgent-now first, then low-hanging-fruit, urgent-today, high-pressure, low-pressure, urgent-soon, other)
- * 2) If BOTH tasks are in urgent-now (categoryIndex==0):
- *      - Those with low-hanging-fruit ALSO come first (urgentNowHasLHF = true)
+ * 1) categoryIndex ASC (urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon, other)
+ * 2) durationIndex ASC within category (under-15m .. over-3h)
  * 3) Final tie-break: created_at ASC (oldest first)
  * 4) Stable by ID
  */
 function comparePerRules_(a, b) {
   if (a.categoryIndex !== b.categoryIndex) return a.categoryIndex - b.categoryIndex;
-
-  // Special tie-break inside urgent-now
-  if (a.categoryIndex === 0 && b.categoryIndex === 0) {
-    if (a.urgentNowHasLHF !== b.urgentNowHasLHF) {
-      // true (has LHF) comes before false
-      return a.urgentNowHasLHF ? -1 : 1;
-    }
-  }
+  if (a.durationIndex !== b.durationIndex) return a.durationIndex - b.durationIndex;
 
   // Final tie-break: created_at oldest first
   const ac = a.createdAt ? new Date(a.createdAt).getTime() : Number.MAX_SAFE_INTEGER;
@@ -232,8 +239,7 @@ function emailRankedTasks_(ordered, recipient) {
       <h2 style="margin:0 0 8px">Todoist Ranked Tasks</h2>
       <div style="color:#555;margin-bottom:12px">
         Unique ranks assigned from <strong>1..${ordered.length}</strong> (1 = highest priority).
-        Within <code>urgent-now</code>, tasks that also have <code>low-hanging-fruit</code> come first.
-        Final tie-break is <em>created date</em> (oldest first).
+        Groups: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon. Within each group, duration sub-groups from <em>under-15m</em> to <em>over-3h</em>, then by oldest created.
       </div>
       <table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse; border-color:#e5e7eb; width:100%;">
         <thead style="background:#f8fafc">
