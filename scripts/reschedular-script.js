@@ -35,6 +35,16 @@ const DURATION_ORDER = [
   'over-3h'
 ];
 
+// Minutes estimate per duration label
+const DURATION_TO_MINUTES = {
+  'under-15m': 15,
+  '15m-to-30m': 30,
+  '30m-to-1h': 60,
+  '1h-2h': 120,
+  '2h-3h': 180,
+  'over-3h': 240
+};
+
 const TOP_N = 10; // how many to time-block
 
 // ============= Entry point =============
@@ -214,23 +224,85 @@ function emailRankedTasks_(ordered, recipient) {
   const now = new Date();
   const subject = `Todoist Planner — Ranked (${ordered.length}) — ${now.toDateString()}`;
 
+  // Compute estimates (minutes)
+  const toMinutes = (labelsLower) => {
+    for (let i = 0; i < DURATION_ORDER.length; i++) {
+      const key = DURATION_ORDER[i];
+      if (labelsLower.indexOf(key) !== -1) return DURATION_TO_MINUTES[key];
+    }
+    return 0; // unknown duration contribute 0
+  };
+  let totalMin = 0, urgentNowMin = 0, urgentTodayMin = 0, highPressureMin = 0;
+  ordered.forEach(t => {
+    const minutes = toMinutes(t.labelsLower || []);
+    totalMin += minutes;
+    if (t.labelsLower.indexOf('urgent-now') !== -1) urgentNowMin += minutes;
+    if (t.labelsLower.indexOf('urgent-today') !== -1) urgentTodayMin += minutes;
+    if (t.labelsLower.indexOf('high-pressure') !== -1) highPressureMin += minutes;
+  });
+  const fmt = (m) => {
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    if (h && min) return `${h}h ${min}m`;
+    if (h) return `${h}h`;
+    return `${min}m`;
+  };
+
+  // Helpers for label rendering
+  const precedence = CATEGORY_ORDER.concat(DURATION_ORDER);
+  function precedenceIndex_(nm){
+    const i = precedence.indexOf(nm);
+    return i === -1 ? 999 : i;
+  }
+  function sortLabelsForDisplay_(arr){
+    const lower = (arr || []).map(s => String(s).toLowerCase());
+    return lower.sort((a,b) => {
+      const ai = precedenceIndex_(a), bi = precedenceIndex_(b);
+      if (ai !== bi) return ai - bi;
+      return a.localeCompare(b);
+    });
+  }
+  function pill_(text, bg, border, color){
+    const safe = html_(text);
+    return `<span style="display:inline-block;padding:4px 12px;border:1px solid ${border};background:${bg};color:${color};border-radius:999px;font-size:12px;white-space:nowrap;word-break:normal;hyphens:none;">${safe}</span>`;
+  }
+  function labelPillHtml_(nm){
+    const n = nm.toLowerCase();
+    if (n === 'urgent-now')        return pill_(nm, '#dcfce7', '#86efac', '#065f46');
+    if (n === 'urgent-today')      return pill_(nm, '#e0f2fe', '#93c5fd', '#1e3a8a');
+    if (n === 'urgent-soon')       return pill_(nm, '#fef3c7', '#fde68a', '#92400e');
+    if (n === 'high-pressure')     return pill_(nm, '#fee2e2', '#fecaca', '#991b1b');
+    if (n === 'low-pressure')      return pill_(nm, '#f3f4f6', '#e5e7eb', '#374151');
+    if (DURATION_ORDER.indexOf(n) !== -1) return pill_(nm, '#f3e8ff', '#e9d5ff', '#5b21b6');
+    return pill_(nm, '#eef2ff', '#e0e7ff', '#3730a3');
+  }
+
   // Column order: rank , labels , task , project name , Due time , Due String
-  const rows = ordered.map(t => {
+  const tdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top;"';
+  const rankTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:6%; min-width:40px;"';
+  const labelsTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:12%; min-width:140px;"';
+  const taskTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:44%; min-width:340px;"';
+  const projectTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:12%; min-width:120px;"';
+  const dueTimeTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:8%; min-width:70px; text-align:center;"';
+  const dueStrTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:14%; min-width:160px; white-space:nowrap;"';
+  const rows = ordered.map((t, i) => {
     const rank = String(t.rank);
-    const labels = t.labelNames.join(', ');
+    const labelsSorted = sortLabelsForDisplay_(t.labelNames);
+    const labels = labelsSorted.map(labelPillHtml_).join('<br/>');
     const task = t.raw.content || '';
     const project = t.projectName || '';
     const dueTime = formatDueTime_(t.raw.due ? t.raw.due.datetime : null) || '';
     const dueString = t.raw.due ? (t.raw.due.string || '') : '';
 
+    const zebra = (i % 2 === 1) ? 'background:#f9fafb;' : '';
     return `
-      <tr>
-        <td>${html_(rank)}</td>
-        <td>${html_(labels)}</td>
-        <td>${html_(task)}</td>
-        <td>${html_(project)}</td>
-        <td>${html_(dueTime)}</td>
-        <td>${html_(dueString)}</td>
+      <tr style="${zebra}">
+        <td ${rankTdStyle}>${html_(rank)}</td>
+        <td ${labelsTdStyle}>${labels}</td>
+        <td ${taskTdStyle}>${html_(task)}</td>
+        <td ${projectTdStyle}>${html_(project)}</td>
+        <td ${dueTimeTdStyle}>${html_(dueTime)}</td>
+        <td ${dueStrTdStyle}>${html_(dueString)}</td>
       </tr>`;
   }).join('');
 
@@ -241,14 +313,27 @@ function emailRankedTasks_(ordered, recipient) {
         Unique ranks assigned from <strong>1..${ordered.length}</strong> (1 = highest priority).
         Groups: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon. Within each group, duration sub-groups from <em>under-15m</em> to <em>over-3h</em>, then by oldest created.
       </div>
-      <table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse; border-color:#e5e7eb; width:100%;">
-        <thead style="background:#f8fafc">
+      <div style="margin:8px 0 16px; font-size:13px; color:#111;">
+        <span style="display:inline-block; padding:4px 10px; border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; margin-right:8px;"><strong>Total</strong>&nbsp;${fmt(totalMin)}</span>
+        <span style="display:inline-block; padding:4px 10px; border:1px solid #e5e7eb; background:#f0fdf4; border-radius:999px; margin-right:8px;"><strong>Urgent-now</strong>&nbsp;${fmt(urgentNowMin)}</span>
+        <span style="display:inline-block; padding:4px 10px; border:1px solid #e5e7eb; background:#ecfeff; border-radius:999px; margin-right:8px;"><strong>Urgent-today</strong>&nbsp;${fmt(urgentTodayMin)}</span>
+        <span style="display:inline-block; padding:4px 10px; border:1px solid #e5e7eb; background:#fefce8; border-radius:999px; margin-right:8px;"><strong>High-pressure</strong>&nbsp;${fmt(highPressureMin)}</span>
+      </div>
+      <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+      <table cellpadding="8" cellspacing="0" border="0" style="width:100%; border-collapse:separate; border-spacing:0; background:#ffffff;">
+        <thead>
           <tr>
-            <th>Rank</th><th>Labels</th><th>Task</th><th>Project</th><th>Due time</th><th>Due string</th>
+            <th style="text-align:left; background:linear-gradient(90deg,#2563eb,#1d4ed8); color:#fff; letter-spacing:.3px;">Rank</th>
+            <th style="text-align:left; background:linear-gradient(90deg,#2563eb,#1d4ed8); color:#fff; letter-spacing:.3px;">Labels</th>
+            <th style="text-align:left; background:linear-gradient(90deg,#2563eb,#1d4ed8); color:#fff; letter-spacing:.3px;">Task</th>
+            <th style="text-align:left; background:linear-gradient(90deg,#2563eb,#1d4ed8); color:#fff; letter-spacing:.3px;">Project</th>
+            <th style="text-align:left; background:linear-gradient(90deg,#2563eb,#1d4ed8); color:#fff; letter-spacing:.3px;">Due time</th>
+            <th style="text-align:left; background:linear-gradient(90deg,#2563eb,#1d4ed8); color:#fff; letter-spacing:.3px;">Due string</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
+      </div>
     </div>
   `;
 
