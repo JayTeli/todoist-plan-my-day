@@ -285,7 +285,9 @@ function emailRankedTasks_(ordered, recipient) {
   const projectTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:12%; min-width:120px;"';
   const dueTimeTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:8%; min-width:70px; text-align:center;"';
   const dueStrTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:14%; min-width:160px; white-space:nowrap;"';
-  const rows = ordered.map((t, i) => {
+  const displayLimit = 100;
+  const displayed = ordered.slice(0, Math.min(displayLimit, ordered.length));
+  const rows = displayed.map((t, i) => {
     const rank = String(t.rank);
     const labelsSorted = sortLabelsForDisplay_(t.labelNames);
     const labels = labelsSorted.map(labelPillHtml_).join('<br/>');
@@ -306,11 +308,12 @@ function emailRankedTasks_(ordered, recipient) {
       </tr>`;
   }).join('');
 
+  const showingNote = ordered.length > displayLimit ? (' — showing top ' + displayLimit) : '';
   const htmlBody = `
     <div style="font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
       <h2 style="margin:0 0 8px">Todoist Ranked Tasks</h2>
       <div style="color:#555;margin-bottom:12px">
-        Unique ranks assigned from <strong>1..${ordered.length}</strong> (1 = highest priority).
+        Unique ranks assigned from <strong>1..${ordered.length}</strong> (1 = highest priority)${showingNote}.
         Groups: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon. Within each group, duration sub-groups from <em>estimated-under-5m</em> to <em>estimated-over-2h</em>, then by oldest created.
       </div>
       <div style="margin:8px 0 16px; font-size:13px; color:#111;">
