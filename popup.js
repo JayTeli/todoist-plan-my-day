@@ -393,14 +393,38 @@ function renderCurrentTask(){
   const dueStr = (t.due && t.due.string) ? t.due.string : null;
   const isRecurring = !!(t.due && t.due.is_recurring);
   const pname = t.project_id ? (projectIdToName.get(String(t.project_id)) || t.project_id) : null;
+  let dueDateISO = null;
+  if (t && t.due){
+    if (t.due.date) {
+      dueDateISO = String(t.due.date);
+    } else if (t.due.datetime) {
+      const dt = new Date(t.due.datetime);
+      dueDateISO = toLocalISO(dt);
+    }
+  }
+  const dueDateHuman = dueDateISO ? humanDateFromISO(dueDateISO) : null;
   const chips = [];
   if (pname) chips.push(`<span class="chip blue">${pname}</span>`);
   if (dueStr) chips.push(`<span class="chip amber">Due: ${dueStr}</span>`);
+  if (dueDateHuman) chips.push(`<span class="chip">Date: ${dueDateHuman}</span>`);
   if (isRecurring) chips.push(`<span class="chip purple">Recurring</span>`);
   taskMetaEl.innerHTML = chips.join(' ');
 
-  // Reset UI
-  qAll('input[name="dateChoice"]').forEach(r => { r.checked = (r.value === 'today'); });
+  // Reset UI: select Today only if task is due today; otherwise, nothing selected
+  (function(){
+    const todayISO = toLocalISO(new Date());
+    let dueDateISO = null;
+    if (t && t.due){
+      if (t.due.date) {
+        dueDateISO = String(t.due.date);
+      } else if (t.due.datetime) {
+        const dt = new Date(t.due.datetime);
+        dueDateISO = toLocalISO(dt);
+      }
+    }
+    const isDueToday = (dueDateISO === todayISO);
+    qAll('input[name="dateChoice"]').forEach(r => { r.checked = isDueToday && (r.value === 'today'); });
+  })();
   qAll('.checks input[type=checkbox]').forEach(c => { c.checked = false; });
 
   // Pre-check labels that already exist on the task (prefer names; fallback to ids)
@@ -629,24 +653,31 @@ async function submitCurrent(){
         }
       }
 
-      // Other presets (tomorrow, next Mon–Sun): create a one-off duplicate only, do not update original
+      // Other presets (tomorrow, next Mon–Sun): reschedule recurring task in-place via Sync API (avoid duplicate)
       try {
-        const createBody = {
-          content: t.content,
-          project_id: t.project_id,
-          due_date: targetISO
+        const dueString = (t && t.due && t.due.string) ? String(t.due.string) : undefined;
+        const cmd = {
+          type: 'item_update',
+          uuid: uuidv4(),
+          args: {
+            id: idStr,
+            due: {
+              date: targetISO,
+              timezone: null,
+              is_recurring: true,
+              ...(dueString ? { string: dueString, lang: 'en' } : { is_recurring: true })
+            }
+          }
         };
-        // Include computed labels for the duplicate
-        createBody.labels = finalLabels;
-        if (t.parent_id) createBody.parent_id = t.parent_id;
-        if (!t.parent_id && t.section_id) createBody.section_id = t.section_id;
-        await tdFetch('/tasks', { method: 'POST', body: createBody });
+        await syncPost([cmd]);
+        // Apply labels via REST to ensure duration label replacements are reflected
+        await tdFetch('/tasks/' + idStr, { method: 'POST', body: { labels: finalLabels } });
         if (statusEl) statusEl.textContent = 'Updated ✔';
         idx += 1;
         if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
         return;
       } catch (e) {
-        console.error('Create duplicate for preset failed:', e);
+        console.error('Reschedule recurring (sync) failed:', e);
         if (statusEl) statusEl.textContent = 'Update failed: ' + e.message;
         return;
       }
@@ -792,6 +823,36 @@ if (doneTaskBtn){
 }
 
 // Calendar interactions removed
+
+// Sync API helper for in-place updates (e.g., recurring reschedule)
+async function syncPost(commands){
+  if (!token) throw new Error('Missing Todoist token');
+  const url = 'https://api.todoist.com/sync/v9/sync';
+  const payload = { resource_types: ['items'], sync_token: '*', commands: commands };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status + ': ' + text));
+  return data;
+}
+function uuidv4(){
+  try {
+    const buf = new Uint8Array(16); crypto.getRandomValues(buf);
+    buf[6] = (buf[6] & 0x0f) | 0x40;
+    buf[8] = (buf[8] & 0x3f) | 0x80;
+    const hex = Array.from(buf, b => b.toString(16).padStart(2, '0'));
+    return `${hex[0]}${hex[1]}${hex[2]}${hex[3]}-${hex[4]}${hex[5]}-${hex[6]}${hex[7]}-${hex[8]}${hex[9]}-${hex[10]}${hex[11]}${hex[12]}${hex[13]}${hex[14]}${hex[15]}`;
+  } catch(_e){
+    return String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+  }
+}
 
 // Init
 (function init(){
