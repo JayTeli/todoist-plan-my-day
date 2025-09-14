@@ -285,7 +285,7 @@ function emailRankedTasks_(ordered, recipient) {
   const projectTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:12%; min-width:120px;"';
   const dueTimeTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:8%; min-width:70px; text-align:center;"';
   const dueStrTdStyle = 'style="border-bottom:1px solid #e5e7eb; vertical-align:top; width:14%; min-width:160px; white-space:nowrap;"';
-  const displayLimit = 100;
+  const displayLimit = 50;
   const displayed = ordered.slice(0, Math.min(displayLimit, ordered.length));
   const rows = displayed.map((t, i) => {
     const rank = String(t.rank);
