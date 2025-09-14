@@ -2,7 +2,7 @@
  * Todoist hourly planner (Apps Script) + Email report — unique ranks starting at 1
  * - Fetch active tasks due "today | overdue"
  * - Group order: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon, other
- * - Within each group, sub-group by duration: under-15m, 15m-to-30m, 30m-to-1h, 1h-2h, 2h-3h, over-3h
+ * - Within each group, sub-group by duration: estimated-under-5m, estimated-5m-to-15m, estimated-15m-to-30m, estimated-30m-to-1h, estimated-1h-2h, estimated-over-2h
  * - Final tie-break: created_at oldest first
  * - Assign unique ranks 1..N in sorted order (no duplicates)
  * - Email report with columns: rank, labels, task, project, due time, due string
@@ -27,22 +27,22 @@ const CATEGORY_ORDER = [
 
 // Duration sub-group order within a category
 const DURATION_ORDER = [
-  'under-15m',
-  '15m-to-30m',
-  '30m-to-1h',
-  '1h-2h',
-  '2h-3h',
-  'over-3h'
+  'estimated-under-5m',
+  'estimated-5m-to-15m',
+  'estimated-15m-to-30m',
+  'estimated-30m-to-1h',
+  'estimated-1h-2h',
+  'estimated-over-2h'
 ];
 
 // Minutes estimate per duration label
 const DURATION_TO_MINUTES = {
-  'under-15m': 15,
-  '15m-to-30m': 30,
-  '30m-to-1h': 60,
-  '1h-2h': 120,
-  '2h-3h': 180,
-  'over-3h': 240
+  'estimated-under-5m': 5,
+  'estimated-5m-to-15m': 15,
+  'estimated-15m-to-30m': 30,
+  'estimated-30m-to-1h': 60,
+  'estimated-1h-2h': 120,
+  'estimated-over-2h': 150
 };
 
 const TOP_N = 10; // how many to time-block
@@ -311,7 +311,7 @@ function emailRankedTasks_(ordered, recipient) {
       <h2 style="margin:0 0 8px">Todoist Ranked Tasks</h2>
       <div style="color:#555;margin-bottom:12px">
         Unique ranks assigned from <strong>1..${ordered.length}</strong> (1 = highest priority).
-        Groups: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon. Within each group, duration sub-groups from <em>under-15m</em> to <em>over-3h</em>, then by oldest created.
+        Groups: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon. Within each group, duration sub-groups from <em>estimated-under-5m</em> to <em>estimated-over-2h</em>, then by oldest created.
       </div>
       <div style="margin:8px 0 16px; font-size:13px; color:#111;">
         <span style="display:inline-block; padding:4px 10px; border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; margin-right:8px;"><strong>Total</strong>&nbsp;${fmt(totalMin)}</span>

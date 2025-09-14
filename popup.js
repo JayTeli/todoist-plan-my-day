@@ -44,6 +44,7 @@ let idx = 0;
 let token = '';
 let customDateISO = null; // YYYY-MM-DD
 let labelIndexByName = new Map(); // name -> id
+let labelNameById = new Map(); // id -> name
 let projectIdToName = new Map(); // id -> name
 let cameFromSearch = false; // whether current task view was opened from search
 
@@ -226,8 +227,12 @@ async function fetchTodayTasks(){
 async function preloadLabels(){
   const labels = await tdFetch('/labels');
   labelIndexByName.clear();
+  labelNameById.clear();
   for (const l of (labels || [])) {
-    if (l.name && l.id) labelIndexByName.set(l.name.toLowerCase(), l.id);
+    if (l.name && l.id){
+      labelIndexByName.set(l.name.toLowerCase(), l.id);
+      labelNameById.set(Number(l.id), String(l.name));
+    }
   }
 }
 
@@ -266,6 +271,7 @@ async function ensureLabelsExist(names){
         const created = await tdFetch('/labels', { method: 'POST', body: { name: n } });
         if (created && created.id) {
           labelIndexByName.set(key, created.id);
+          labelNameById.set(Number(created.id), String(created.name));
         }
       } catch(e){
         console.error('Failed to create label', n, e);
@@ -420,7 +426,7 @@ function renderCurrentTask(){
 
   const urgencyMap = ['urgent-now','urgent-today','urgent-soon'];
   const pressureMap = ['high-pressure','low-pressure'];
-  const durationMap = ['under-15m','15m-to-30m','30m-to-1h','1h-2h','2h-3h','over-3h'];
+  const durationMap = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-2h','estimated-over-2h'];
 
   for (const u of urgencyMap){
     if (checkIfHasLabel(u)){
@@ -527,18 +533,61 @@ async function submitCurrent(){
   const chosenRadio = document.querySelector('input[name="dateChoice"]:checked');
   const dateChoice = chosenRadio ? chosenRadio.value : 'today';
 
-  // Collect labels from new radios + quick wins checkbox
-  const selectedLabels = [];
+  // Compute final labels: start from existing, remove old duration labels, then apply selected radios
   const uEl = document.querySelector('input[name="urgencyChoice"]:checked');
-  if (uEl) selectedLabels.push(uEl.value);
   const pEl = document.querySelector('input[name="pressureChoice"]:checked');
-  if (pEl) selectedLabels.push(pEl.value);
   const dEl = document.querySelector('input[name="durationChoice"]:checked');
-  if (dEl) selectedLabels.push(dEl.value);
+
+  // Build existing label names (case-preserving where possible)
+  const existingRaw = Array.isArray(t.labels) ? t.labels.slice() : (Array.isArray(t.label_ids) ? t.label_ids.slice() : []);
+  const existingNames = [];
+  for (const v of existingRaw){
+    if (typeof v === 'number' || String(v).match(/^\d+$/)){
+      const nm = labelNameById.get(Number(v));
+      if (nm) existingNames.push(nm);
+    } else {
+      existingNames.push(String(v));
+    }
+  }
+
+  const URGENCY = ['urgent-now','urgent-today','urgent-soon'];
+  const PRESSURE = ['high-pressure','low-pressure'];
+  const OLD_DURATION = ['under-15m','15m-to-30m','30m-to-1h','1h-2h','2h-3h','over-3h'];
+  const NEW_DURATION = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-2h','estimated-over-2h'];
+
+  function withoutCategories(arr, cats){
+    const lowers = new Set(cats.map(s => s.toLowerCase()));
+    return arr.filter(nm => !lowers.has(String(nm).toLowerCase()));
+  }
+
+  let finalLabels = existingNames.slice();
+  // Strip old and any existing new duration labels
+  finalLabels = withoutCategories(finalLabels, OLD_DURATION);
+  finalLabels = withoutCategories(finalLabels, NEW_DURATION);
+  // If selecting urgency, replace existing urgency
+  if (uEl){
+    finalLabels = withoutCategories(finalLabels, URGENCY);
+    finalLabels.push(uEl.value);
+  }
+  // If selecting pressure, replace existing pressure
+  if (pEl){
+    finalLabels = withoutCategories(finalLabels, PRESSURE);
+    finalLabels.push(pEl.value);
+  }
+  // If selecting duration, add new estimated duration
+  if (dEl){
+    finalLabels.push(dEl.value);
+  }
+
+  // Ensure to create any new labels we might have added
+  const toEnsure = [];
+  if (uEl) toEnsure.push(uEl.value);
+  if (pEl) toEnsure.push(pEl.value);
+  if (dEl) toEnsure.push(dEl.value);
 
   try {
-    // Ensure labels exist
-    await ensureLabelsExist(selectedLabels);
+    // Ensure labels exist for any newly added ones
+    await ensureLabelsExist(toEnsure);
 
     // Compute explicit date (YYYY-MM-DD) for update
     const targetISO = presetChoiceToISO(dateChoice);
@@ -566,7 +615,8 @@ async function submitCurrent(){
         try {
           const todayISO = presetChoiceToISO('today');
           const updateBody = { due_date: todayISO };
-          if (selectedLabels.length) updateBody.labels = selectedLabels;
+          // Always send labels to ensure old duration labels are removed
+          updateBody.labels = finalLabels;
           await tdFetch('/tasks/' + idStr, { method: 'POST', body: updateBody });
           if (statusEl) statusEl.textContent = 'Updated ✔';
           idx += 1;
@@ -586,7 +636,8 @@ async function submitCurrent(){
           project_id: t.project_id,
           due_date: targetISO
         };
-        if (selectedLabels.length) createBody.labels = selectedLabels;
+        // Include computed labels for the duplicate
+        createBody.labels = finalLabels;
         if (t.parent_id) createBody.parent_id = t.parent_id;
         if (!t.parent_id && t.section_id) createBody.section_id = t.section_id;
         await tdFetch('/tasks', { method: 'POST', body: createBody });
@@ -603,10 +654,11 @@ async function submitCurrent(){
 
     // Non-recurring: update due_date and labels directly
     const body = {};
-    if (selectedLabels.length) body.labels = selectedLabels; // send names
+    // Always send labels to remove old duration labels
+    body.labels = finalLabels; // send names
     body.due_date = targetISO; // due_string not set
 
-    console.log('Updating task (due_date only) with labels (names):', targetISO, selectedLabels);
+    console.log('Updating task (due_date only) with labels (names):', targetISO, finalLabels);
     await tdFetch('/tasks/' + idStr, { method: 'POST', body });
 
     if (statusEl) statusEl.textContent = 'Updated ✔';
