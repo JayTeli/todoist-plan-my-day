@@ -30,6 +30,7 @@ const focusTaskTitleEl = document.getElementById('focusTaskTitle');
 const focusTimerEl = document.getElementById('focusTimer');
 const focusStatusEl = document.getElementById('focusStatus');
 const focusSubtasksEl = document.getElementById('focusSubtasks');
+const chartTooltipEl = document.getElementById('chartTooltip');
 // Search
 const scrSearch = document.getElementById('screen-search');
 const searchInput = document.getElementById('searchInput');
@@ -1031,6 +1032,7 @@ function startFocusTimerFor(task, minutes){
   if (focusStatusEl) focusStatusEl.textContent = '';
   if (focusSubtasksEl){
     focusSubtasksEl.innerHTML = '<div class="subtasks-title">Subtasks</div><div class="muted">Loading…</div>';
+    try{ focusSubtasksEl.style.display = ''; }catch(_e){}
   }
   const mins = Math.max(1, Number(minutes) || 5);
   focusStartTs = Date.now();
@@ -1051,6 +1053,355 @@ function startFocusTimerFor(task, minutes){
   try{ chrome.runtime.sendMessage({ type: 'focus_start', taskId: task.id, taskTitle: task.content || '', startAt: focusStartTs }, function(_res){ /* ignore */ }); }catch(_e){}
   show(scrFocus);
   try { renderFocusSubtasks(task); } catch(_e) {}
+  try { renderFocusInsights(); } catch(_e) {}
+}
+async function fetchCompletedSince(days){
+  const now = new Date();
+  const since = new Date(now.getTime() - days*24*60*60*1000);
+  const sinceIso = since.toISOString();
+  // Use Sync completed API via fetch; reuse token
+  const url = 'https://api.todoist.com/sync/v9/completed/get_all?since=' + encodeURIComponent(sinceIso) + '&limit=200&offset=0';
+  const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+  const data = await res.json().catch(() => ({ items: [] }));
+  const items = Array.isArray(data.items) ? data.items : [];
+  return items.map(it => ({
+    completed_at: it.completed_at || it.completed_date || null,
+    project_id: String(it.project_id || ''),
+    content: it.content || '',
+  }));
+}
+function groupByDate(items){
+  const by = new Map();
+  for (const it of items){
+    if (!it.completed_at) continue;
+    const d = new Date(it.completed_at);
+    const ymd = toLocalISO(d);
+    by.set(ymd, (by.get(ymd)||0)+1);
+  }
+  // fill gaps for nicer charts
+  const keys = Array.from(by.keys()).sort();
+  return { map: by, keys };
+}
+async function fetchProjectsIndex(){
+  try{
+    const res = await tdFetch('/projects');
+    const idx = new Map();
+    for (const p of (Array.isArray(res)?res:[])) idx.set(String(p.id), p.name);
+    return idx;
+  }catch(_e){ return new Map(); }
+}
+function groupByProjectPerDay(items){
+  const by = new Map(); // ymd -> Map<project, count>
+  for (const it of items){
+    if (!it.completed_at) continue;
+    const d = new Date(it.completed_at);
+    const ymd = toLocalISO(d);
+    const proj = String(it.project_id||'');
+    let m = by.get(ymd); if (!m){ m = new Map(); by.set(ymd, m); }
+    m.set(proj, (m.get(proj)||0)+1);
+  }
+  const keys = Array.from(by.keys()).sort();
+  return { map: by, keys };
+}
+function pickPalette(names){
+  // Balanced professional palette - muted tones with one accent color
+  const base = ['#64748b','#6b7280','#71717a','#78716c','#84cc16','#22c55e','#10b981','#06b6d4','#0ea5e9','#3b82f6','#8b5cf6','#a855f7'];
+  const out = new Map(); let i=0;
+  for (const n of names){ out.set(n, base[i%base.length]); i++; }
+  return out;
+}
+function drawBarChart(canvasId, series, tooltipFmt){
+  const canvas = document.getElementById(canvasId); if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width || canvas.width; const H = rect.height || canvas.height;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+  
+  const allY = series.flatMap(s => s.points.map(p=>p.y));
+  const rawMax = Math.max(1, ...allY, 1);
+  const maxY = Math.ceil(rawMax / 4) * 4;
+  const padLeft = 34, padRight = 12, padTop = 16, padBottom = 18;
+  
+  // axes
+  ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padLeft, H-padBottom); ctx.lineTo(W-padRight, H-padBottom); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(padLeft, padTop); ctx.lineTo(padLeft, H-padBottom); ctx.stroke();
+  
+  // y ticks in multiples of 4 - cleaner styling
+  ctx.fillStyle = '#374151'; ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  for (let v=0; v<=maxY; v+=4){
+    const y = H-padBottom - (H-padTop-padBottom) * (v / maxY);
+    ctx.beginPath(); ctx.moveTo(padLeft-6, y); ctx.lineTo(W-padRight, y); 
+    ctx.strokeStyle = v===0? '#e5e7eb':'#f8fafc'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillText(String(v), 6, y+4);
+  }
+  
+  // draw bars with dynamic dark blue shading based on height
+  const N = series[0]?.points?.length || 0;
+  const barSpacing = (W-padLeft-padRight) / N;
+  const barWidth = barSpacing * 0.95; // 95% width = minimal gaps
+  
+  // Dark blue color palette - lighter to darker based on height
+  const baseBlue = '#1e40af'; // Dark blue base
+  
+  for (const s of series){
+    s.points.forEach((p,i)=>{
+      const x = padLeft + barSpacing * i + (barSpacing - barWidth) / 2;
+      const barHeight = (H-padTop-padBottom) * (p.y / maxY);
+      const y = H-padBottom - barHeight;
+      
+      // Calculate color intensity based on bar height (0 to 1)
+      const heightRatio = p.y / maxY;
+      
+            // Create subtle gradient from light teal to medium teal
+            let color;
+            if (heightRatio < 0.2) {
+              // Very light teal for small bars
+              color = '#ccfbf1';
+            } else if (heightRatio < 0.4) {
+              // Light teal
+              color = '#99f6e4';
+            } else if (heightRatio < 0.6) {
+              // Medium teal
+              color = '#5eead4';
+            } else if (heightRatio < 0.8) {
+              // Darker teal
+              color = '#2dd4bf';
+            } else {
+              // Darkest teal for tallest bars
+              color = '#14b8a6';
+            }
+      
+      // Solid fill with dynamic color
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, barWidth, barHeight);
+      
+            // Border with slightly darker teal shade
+            ctx.strokeStyle = '#0d9488';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, barWidth, barHeight);
+      
+      p._x = x + barWidth/2;
+      p._y = y;
+    });
+  }
+  
+  // average and peak lines - cleaner styling
+  const all = series.flatMap(s=>s.points.map(p=>p.y));
+  const avg = all.length ? all.reduce((a,b)=>a+b,0)/all.length : 0;
+  const peak = all.length ? Math.max(...all) : 0;
+  const yAvg = H-padBottom - (H-padTop-padBottom) * (avg / maxY);
+  const yPeak = H-padBottom - (H-padTop-padBottom) * (peak / maxY);
+  
+  // Cleaner dashed lines
+  ctx.setLineDash([6,4]);
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(padLeft, yAvg); ctx.lineTo(W-padRight, yAvg); ctx.stroke();
+  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(padLeft, yPeak); ctx.lineTo(W-padRight, yPeak); ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // Cleaner labels with better positioning
+  ctx.fillStyle = '#64748b'; ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText(`avg ${avg.toFixed(1)}`, W-padRight-50, yAvg-6);
+  ctx.fillStyle = '#dc2626'; ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText(`peak ${peak}`, W-padRight-50, yPeak-6);
+  
+  // tooltip
+  canvas.addEventListener('mousemove', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    let found = null;
+    for (const s of series){
+      for (const p of s.points){
+        if (Math.abs(x-p._x)<8 && Math.abs(y-p._y)<8){ found = {s,p}; break; }
+      }
+      if (found) break;
+    }
+    const tip = document.getElementById('chartTooltip');
+    if (found){
+      tip.textContent = tooltipFmt ? tooltipFmt(found.p, found.s) : `${found.s.label}: ${found.p.y}`;
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 8) + 'px';
+      tip.style.top = (e.clientY - 8) + 'px';
+    } else {
+      tip.style.display = 'none';
+    }
+  });
+}
+
+function drawLineChart(canvasId, series, tooltipFmt){
+  const canvas = document.getElementById(canvasId); if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width || canvas.width; const H = rect.height || canvas.height;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+  // series: [{label,color,points:[{label,y}], maxY}]
+  const allY = series.flatMap(s => s.points.map(p=>p.y));
+  const rawMax = Math.max(1, ...allY, 1);
+  // y-axis max rounded up to nearest multiple of 4
+  const maxY = Math.ceil(rawMax / 4) * 4;
+  const padLeft = 34, padRight = 12, padTop = 16, padBottom = 18;
+  // axes
+  ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padLeft, H-padBottom); ctx.lineTo(W-padRight, H-padBottom); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(padLeft, padTop); ctx.lineTo(padLeft, H-padBottom); ctx.stroke();
+  // y ticks in multiples of 4 - cleaner styling
+  ctx.fillStyle = '#374151'; ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  for (let v=0; v<=maxY; v+=4){
+    const y = H-padBottom - (H-padTop-padBottom) * (v / maxY);
+    ctx.beginPath(); ctx.moveTo(padLeft-6, y); ctx.lineTo(W-padRight, y); 
+    ctx.strokeStyle = v===0? '#e5e7eb':'#f8fafc'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillText(String(v), 6, y+4);
+  }
+  // plot each series - cleaner lines
+  const N = series[0]?.points?.length || 0;
+  for (const s of series){
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2.5; ctx.beginPath();
+    s.points.forEach((p,i)=>{
+      const x = padLeft + (W-padLeft-padRight) * (N<=1? 0.5 : (i/(N-1)));
+      const y = H-padBottom - (H-padTop-padBottom) * (p.y / maxY);
+      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      p._x=x; p._y=y;
+    });
+    ctx.stroke();
+  }
+  // average and peak lines
+  const all = series.flatMap(s=>s.points.map(p=>p.y));
+  const avg = all.length ? all.reduce((a,b)=>a+b,0)/all.length : 0;
+  const peak = all.length ? Math.max(...all) : 0;
+  const yAvg = H-padBottom - (H-padTop-padBottom) * (avg / maxY);
+  const yPeak = H-padBottom - (H-padTop-padBottom) * (peak / maxY);
+  // Cleaner dashed lines for line charts
+  ctx.setLineDash([6,4]);
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(padLeft, yAvg); ctx.lineTo(W-padRight, yAvg); ctx.stroke();
+  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(padLeft, yPeak); ctx.lineTo(W-padRight, yPeak); ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // Cleaner labels with better positioning
+  ctx.fillStyle = '#64748b'; ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText('avg ' + Math.round(avg*10)/10, W-padRight-60, Math.max(padTop+12, yAvg-6));
+  ctx.fillStyle = '#dc2626'; ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText('peak ' + peak, W-padRight-60, Math.max(padTop+12, yPeak-6));
+  // basic hover tooltip
+  canvas.onmousemove = (e)=>{
+    if (!chartTooltipEl) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+    let hit=null, hitSeries=null;
+    for (const s of series){
+      for (const p of s.points){
+        if (Math.hypot(mx-p._x, my-p._y) < 6){ hit=p; hitSeries=s; break; }
+      }
+      if (hit) break;
+    }
+    if (hit){
+      chartTooltipEl.style.display='block';
+      chartTooltipEl.textContent = tooltipFmt ? tooltipFmt(hit, hitSeries) : (hit.label+': '+hit.y);
+      chartTooltipEl.style.left = (e.clientX+10)+'px';
+      chartTooltipEl.style.top = (e.clientY+10)+'px';
+    } else {
+      chartTooltipEl.style.display='none';
+    }
+  };
+}
+async function renderFocusInsights(){
+  if (!token) try{ token = await getToken(); }catch(_e){}
+  if (!token) return;
+  // totals
+  const [i30,i7] = await Promise.all([
+    fetchCompletedSince(30), fetchCompletedSince(7)
+  ]);
+  const g30 = groupByDate(i30), g7 = groupByDate(i7);
+  function toSeries(g){
+    const keys = g.keys.sort();
+    const pts = keys.map(k=>({label:k.slice(5), y:g.map.get(k)||0}));
+    // Use vibrant teal for task completion - light and energetic
+    return [{ label:'Total', color:'#14b8a6', points: pts }];
+  }
+  drawBarChart('chartTotal30', toSeries(g30));
+  drawBarChart('chartTotal7', toSeries(g7));
+
+  // projectwise
+  const projIdx = await fetchProjectsIndex();
+  function toProjSeries(items){
+    const gp = groupByProjectPerDay(items);
+    const allProjects = new Set();
+    gp.map.forEach(m => m.forEach((_,pid)=> allProjects.add(pid)));
+    const names = Array.from(allProjects).map(pid => projIdx.get(String(pid)) || pid);
+    const palette = pickPalette(names);
+    const keys = gp.keys.sort();
+    const series = names.map(name => ({ label:name, color:palette.get(name), points: keys.map(k=>({label:k.slice(5), y:(gp.map.get(k)?.get(Array.from(projIdx.entries()).find(([id,n])=>n===name)?.[0]||name) || 0)})) }));
+    // Normalize point access by project id mapping
+    const idByName = {}; projIdx.forEach((n,id)=>{ idByName[n]=String(id); });
+    return { series: names.map(n=>({ label:n, color:palette.get(n), points: keys.map(k=>({label:k.slice(5), y:(gp.map.get(k)?.get(idByName[n]||'')||0)})) })) };
+  }
+  const s30 = toProjSeries(i30).series;
+  const s7  = toProjSeries(i7).series;
+  drawLineChart('chartProj30', s30, (p,s)=> `${s.label} — ${p.label}: ${p.y}`);
+  drawLineChart('chartProj7',  s7 , (p,s)=> `${s.label} — ${p.label}: ${p.y}`);
+
+  // summary
+  function summaryHtml(items, days){
+    const by = groupByDate(items);
+    const keys = by.keys;
+    let sum=0, max=0; for (const k of keys){ const v = by.map.get(k)||0; sum+=v; if (v>max) max=v; }
+    const avg = keys.length ? Math.round(sum/keys.length*10)/10 : 0;
+    return `<div class="card"><div class="title">Last ${days} days</div><div class="vals"><span class="pill">Avg ${avg}/day</span><span class="pill">Max ${max}/day</span></div></div>`;
+  }
+  const summaryEl = document.getElementById('chartSummary');
+  if (summaryEl){
+    summaryEl.innerHTML = [
+      summaryHtml(i30,30),
+      summaryHtml(i7,7)
+    ].join('');
+  }
+
+  // Project summary table (rows: overall and projects sorted by 90d avg; cols: 90d/30d/7d avg)
+  function projectSummaryTableHtml(items90, items30, items7, itemsToday){
+    function computeAverages(items){
+      const by = groupByProjectPerDay(items);
+      const days = by.keys.length || 1;
+      const totals = new Map();
+      for (const k of by.keys){
+        const m = by.map.get(k) || new Map();
+        for (const [pid, cnt] of m.entries()){
+          const name = projIdx.get(String(pid)) || String(pid);
+          totals.set(name, (totals.get(name)||0) + (cnt||0));
+        }
+      }
+      const avg = new Map();
+      totals.forEach((sum, name)=> avg.set(name, sum / days));
+      const overall = (Array.from(totals.values()).reduce((a,b)=>a+b,0) / days) || 0;
+      return { avg, overall };
+    }
+    const a90 = computeAverages(items90);
+    const a30 = computeAverages(items30);
+    const a7  = computeAverages(items7);
+    const aToday = computeAverages(itemsToday);
+    const names = new Set([...a90.avg.keys(), ...a30.avg.keys(), ...a7.avg.keys(), ...aToday.avg.keys()]);
+    const rows = Array.from(names).map(n => ({
+      name: n,
+      v90: a90.avg.get(n)||0,
+      v30: a30.avg.get(n)||0,
+      v7:  a7.avg.get(n)||0,
+      vToday: aToday.avg.get(n)||0,
+    }));
+    rows.sort((x,y) => y.v90 - x.v90);
+    const head = `<table class="summary-table"><thead><tr><th>Project</th><th class="num">Last 90d</th><th class="num">Last 30d</th><th class="num">Last 7d</th><th class="num">Today</th></tr></thead><tbody>`;
+    const overallRow = `<tr><td><strong>Overall avg</strong></td><td class="num">${a90.overall.toFixed(1)}</td><td class="num">${a30.overall.toFixed(1)}</td><td class="num">${a7.overall.toFixed(1)}</td><td class="num">${aToday.overall.toFixed(1)}</td></tr>`;
+    const body = rows.map(r => `<tr><td>${r.name}</td><td class="num">${r.v90.toFixed(1)}</td><td class="num">${r.v30.toFixed(1)}</td><td class="num">${r.v7.toFixed(1)}</td><td class="num">${r.vToday.toFixed(1)}</td></tr>`).join('');
+    return head + overallRow + body + '</tbody></table>';
+  }
+  const projSummaryTableEl = document.getElementById('projSummaryTable');
+  if (projSummaryTableEl){
+    const items90 = await fetchCompletedSince(90);
+    const itemsToday = await fetchCompletedSince(1);
+    projSummaryTableEl.innerHTML = projectSummaryTableHtml(items90, i30, i7, itemsToday);
+  }
 }
 function safeDateFrom(x){
   if (!x) return null;
@@ -1082,9 +1433,11 @@ async function renderFocusSubtasks(task){
   try{
     const subs = await fetchSubtasksForTask(task.id);
     if (!subs.length){
+      try{ focusSubtasksEl.style.display = 'none'; }catch(_e){}
       focusSubtasksEl.innerHTML = '';
       return;
     }
+    try{ focusSubtasksEl.style.display = ''; }catch(_e){}
     subs.sort(compareSubtasks);
     const top = subs.slice(0, 5);
     const rows = top.map(st => {
@@ -1135,7 +1488,7 @@ function resumeFocusIfAny(){
         }
       }, 250);
       show(scrFocus);
-
+      try { renderFocusInsights(); } catch(_e) {}
       // Nudging removed
     });
   }catch(_e){}
@@ -1176,6 +1529,7 @@ document.addEventListener('DOMContentLoaded', function(){
         }, 250);
         if (focusTaskTitleEl) focusTaskTitleEl.textContent = st.taskTitle || '(Task)';
         show(scrFocus);
+        try { renderFocusInsights(); } catch(_e) {}
         try{
           chrome.storage.local.get(['focus_nudge_prompt_v1'], (d) => {
             if (d && d['focus_nudge_prompt_v1']){

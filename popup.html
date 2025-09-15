@@ -130,16 +130,51 @@
       <section id="screen-focus" class="screen hidden">
         <div class="task-card">
           <div class="task-title" id="focusTaskTitle"></div>
-          <div id="focusTimer" class="focus-timer" style="font-size:40px; font-weight:900; margin:8px 0; letter-spacing:1px;">00:00</div>
-          <div id="focusStatus" class="status"></div>
-          <div id="focusSubtasks" class="subtasks"></div>
-          <div class="row">
-            <label for="focusMinutesInput" class="muted" style="margin-right:8px;">Minutes focused:</label>
-            <input id="focusMinutesInput" type="number" min="0" step="1" placeholder="0" style="width:90px;" />
+          <div class="row" style="justify-content:space-between; align-items:center; gap:12px;">
+            <div id="focusTimer" class="focus-timer" style="font-size:40px; font-weight:900; margin:8px 0; letter-spacing:1px;">00:00</div>
+            <div class="row" style="margin:0; gap:8px; flex:1; justify-content:center;">
+              <label for="focusMinutesInput" class="muted" style="margin-right:8px;">Minutes focused:</label>
+              <input id="focusMinutesInput" type="number" min="0" step="1" placeholder="0" style="width:90px;" />
+            </div>
+            <div class="row" style="margin:0; gap:8px;">
+              <button id="focusPause" class="secondary">Pause</button>
+              <button id="focusStop" class="danger">Stop focus</button>
+            </div>
           </div>
-          <div class="row">
-            <button id="focusPause" class="secondary">Pause</button>
-            <button id="focusStop" class="danger">Stop focus</button>
+          <div id="focusStatus" class="status"></div>
+          <div id="focusSubtasks" class="subtasks" style="display:none;"></div>
+          <div id="focusInsights" class="insights">
+            <div class="insights-grid">
+              <div id="summaryCol">
+                <div class="chart-card">
+                  <div class="chart-title">Project summary</div>
+                  <div id="projSummaryTable"></div>
+                </div>
+              </div>
+              <div id="chartsCol">
+                <div class="charts-row">
+                  <div class="chart-card">
+                    <div class="chart-title">Total tasks — last 30 days</div>
+                    <canvas id="chartTotal30" width="600" height="120"></canvas>
+                  </div>
+                  <div class="chart-card">
+                    <div class="chart-title">Total tasks — last 7 days</div>
+                    <canvas id="chartTotal7" width="600" height="120"></canvas>
+                  </div>
+                </div>
+                <div class="charts-row">
+                  <div class="chart-card">
+                    <div class="chart-title">Projectwise — last 30 days</div>
+                    <canvas id="chartProj30" width="600" height="140"></canvas>
+                  </div>
+                  <div class="chart-card">
+                    <div class="chart-title">Projectwise — last 7 days</div>
+                    <canvas id="chartProj7" width="600" height="140"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="chartTooltip" class="chart-tooltip" style="display:none"></div>
           </div>
         </div>
       </section>
