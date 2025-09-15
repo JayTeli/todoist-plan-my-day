@@ -8,6 +8,7 @@ const scrStart = document.getElementById('screen-start');
 const scrToken = document.getElementById('screen-token');
 const scrTask  = document.getElementById('screen-task');
 const scrDone  = document.getElementById('screen-done');
+const scrFocus = document.getElementById('screen-focus');
 
 // Controls
 const planBtn = document.getElementById('planBtn');
@@ -21,6 +22,14 @@ const taskCounterEl = document.getElementById('taskCounter');
 const prevTaskBtn = document.getElementById('prevTask');
 const deleteTaskBtn = document.getElementById('deleteTask');
 const doneTaskBtn = document.getElementById('doneTask');
+const focusStartBtn = document.getElementById('focusStartBtn');
+const focusMinutesSel = document.getElementById('focusMinutes');
+// back button removed
+const focusCloseTaskBtn = document.getElementById('focusCloseTask');
+const focusTaskTitleEl = document.getElementById('focusTaskTitle');
+const focusTimerEl = document.getElementById('focusTimer');
+const focusStatusEl = document.getElementById('focusStatus');
+const focusSubtasksEl = document.getElementById('focusSubtasks');
 // Search
 const scrSearch = document.getElementById('screen-search');
 const searchInput = document.getElementById('searchInput');
@@ -47,9 +56,18 @@ let labelIndexByName = new Map(); // name -> id
 let labelNameById = new Map(); // id -> name
 let projectIdToName = new Map(); // id -> name
 let cameFromSearch = false; // whether current task view was opened from search
+let cameFromTop5 = false;   // whether current task view was opened from Top 5
+
+const nudgeRow = null;
+const nudgeContinueBtn = null;
+const nudgeStopBtn = null;
+
+const focusPauseBtn = document.getElementById('focusPause');
+const focusStopBtn = document.getElementById('focusStop');
+const focusMinutesInput = document.getElementById('focusMinutesInput');
 
 function show(el){
-  [scrStart, scrToken, scrTask, scrDone, scrSearch].forEach(s => s && s.classList.add('hidden'));
+  [scrStart, scrToken, scrTask, scrDone, scrSearch, scrFocus].forEach(s => s && s.classList.add('hidden'));
   el && el.classList.remove('hidden');
   // Widen popup only for task review to reduce vertical overflow
   if (el === scrTask) {
@@ -177,7 +195,7 @@ async function tdFetch(path, opts){
     const errorMsg = (data && data.error) ? data.error : ('HTTP ' + res.status + ': ' + text);
     console.error('=== API ERROR ===');
     console.error('Error message:', errorMsg);
-    console.error('Full response:', { status: res.status, statusText: res.statusText, text, data });
+    try { console.error('Full response:', JSON.stringify({ status: res.status, statusText: res.statusText, text, data }, null, 2)); } catch(_e){ console.error('Full response:', { status: res.status, statusText: res.statusText }); }
     throw new Error(errorMsg);
   }
   return data;
@@ -264,22 +282,44 @@ function getTaskLabelIds(task){
 }
 
 async function ensureLabelsExist(names){
-  for (const n of names) {
+  // Refresh current labels to avoid duplicate-create attempts logging errors
+  try { await preloadLabels(); } catch(_e) {}
+  const unique = Array.from(new Set((names || []).map(s => String(s))));
+  for (const n of unique) {
     const key = String(n).toLowerCase();
-    if (!labelIndexByName.has(key)){
-      try {
-        const created = await tdFetch('/labels', { method: 'POST', body: { name: n } });
+    if (labelIndexByName.has(key)) continue;
+    try {
+      // Use a silent direct fetch to avoid noisy error logs for duplicates
+      if (!token) throw new Error('Missing Todoist token');
+      const res = await fetch(API_BASE + '/labels', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: n })
+      });
+      const text = await res.text();
+      if (res.ok) {
+        let created = null; try { created = text ? JSON.parse(text) : null; } catch { created = null; }
         if (created && created.id) {
           labelIndexByName.set(key, created.id);
           labelNameById.set(Number(created.id), String(created.name));
         }
-      } catch(e){
-        console.error('Failed to create label', n, e);
+      } else {
+        const lower = String(text || '').toLowerCase();
+        if (lower.includes('already exists')) {
+          // Swallow expected duplicate error
+        } else {
+          console.warn('Label create issue for', n, text || res.status);
+        }
       }
+    } catch(e){
+      console.warn('Label create exception for', n, String(e && e.message || e));
     }
   }
-  // Refresh labels to ensure map is fully in sync
-  try { await preloadLabels(); } catch(_e){}
+  // Refresh labels to ensure map is fully in sync after potential creations
+  try { await preloadLabels(); } catch(_e) {}
 }
 
 async function fetchTaskById(id){
@@ -484,8 +524,8 @@ function renderCurrentTask(){
     taskCounterEl.textContent = total ? (current + ' of ' + total) : '';
   }
 
-  // Nav state: enable Previous if came from search, else based on idx
-  if (prevTaskBtn) prevTaskBtn.disabled = cameFromSearch ? false : (idx <= 0);
+  // Nav state: enable Previous if came from search or Top 5, else based on idx
+  if (prevTaskBtn) prevTaskBtn.disabled = (cameFromSearch || cameFromTop5) ? false : (idx <= 0);
 
   // Always enable date controls (including for recurring)
   setDateControlsEnabled(true);
@@ -612,6 +652,8 @@ async function submitCurrent(){
   try {
     // Ensure labels exist for any newly added ones
     await ensureLabelsExist(toEnsure);
+    // Convert final label names to IDs for API payloads
+    const finalLabelIds = Array.from(new Set(namesToLabelIds(finalLabels)));
 
     // Compute explicit date (YYYY-MM-DD) for update
     const targetISO = presetChoiceToISO(dateChoice);
@@ -640,7 +682,7 @@ async function submitCurrent(){
           const todayISO = presetChoiceToISO('today');
           const updateBody = { due_date: todayISO };
           // Always send labels to ensure old duration labels are removed
-          updateBody.labels = finalLabels;
+          updateBody.labels = finalLabelIds;
           await tdFetch('/tasks/' + idStr, { method: 'POST', body: updateBody });
           if (statusEl) statusEl.textContent = 'Updated ✔';
           idx += 1;
@@ -671,7 +713,7 @@ async function submitCurrent(){
         };
         await syncPost([cmd]);
         // Apply labels via REST to ensure duration label replacements are reflected
-        await tdFetch('/tasks/' + idStr, { method: 'POST', body: { labels: finalLabels } });
+        await tdFetch('/tasks/' + idStr, { method: 'POST', body: { labels: finalLabelIds } });
         if (statusEl) statusEl.textContent = 'Updated ✔';
         idx += 1;
         if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
@@ -686,7 +728,7 @@ async function submitCurrent(){
     // Non-recurring: update due_date and labels directly
     const body = {};
     // Always send labels to remove old duration labels
-    body.labels = finalLabels; // send names
+    body.labels = finalLabelIds; // send IDs
     body.due_date = targetISO; // due_string not set
 
     console.log('Updating task (due_date only) with labels (names):', targetISO, finalLabels);
@@ -747,6 +789,12 @@ if (prevTaskBtn)     prevTaskBtn.addEventListener('click', async function(){
 		show(scrSearch);
 		return;
 	}
+  if (cameFromTop5){
+    cameFromTop5 = false;
+    show(scrStart);
+    try { renderTop5Today(); } catch(_e) {}
+    return;
+  }
 	if (idx > 0){
 		idx -= 1;
 		await refreshCurrentTask();
@@ -787,6 +835,7 @@ if (backHomeBtn){
     cameFromSearch = false;
     if (searchList) searchList.innerHTML = '';
     show(scrStart);
+    try { renderTop5Today(); } catch(_e) {}
   });
 }
 if (deleteTaskBtn){
@@ -821,8 +870,111 @@ if (doneTaskBtn){
     }
   });
 }
+if (focusStartBtn){
+  focusStartBtn.addEventListener('click', function(){
+    const t = tasks[idx]; if (!t) return; 
+    let sel = focusMinutesSel ? String(focusMinutesSel.value) : '5';
+    if (sel === '5s'){
+      // Special test mode: 5 seconds
+      startFocusTimerFor(t, 1/12); // 5 seconds
+    } else {
+      const m = Number(sel) || 5; startFocusTimerFor(t, m);
+    }
+  });
+}
+// back button removed
 
 // Calendar interactions removed
+
+// ----- Top 5 for today (home screen) -----
+function formatLocalHM(isoDateTime){
+  const d = new Date(isoDateTime);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+function normalizeLabelNames(arr){
+  return (Array.isArray(arr) ? arr : []).map(s => String(s).toLowerCase());
+}
+function taskHasLabel(task, name){
+  const key = String(name).toLowerCase();
+  const labels = Array.isArray(task.labels) ? normalizeLabelNames(task.labels) : [];
+  if (labels.includes(key)) return true;
+  const ids = Array.isArray(task.label_ids) ? task.label_ids.map(n => Number(n)).filter(n => Number.isFinite(n)) : [];
+  const id = labelIndexByName.get(key);
+  return !!(id && ids.includes(Number(id)));
+}
+async function toggleFocusLabel(task){
+  try{
+    await ensureLabelsExist(['focus']);
+  }catch(_e){}
+  const has = taskHasLabel(task, 'focus');
+  const existing = Array.isArray(task.labels) ? task.labels.slice() : [];
+  const next = has ? existing.filter(x => String(x).toLowerCase() !== 'focus') : existing.concat(['focus']);
+  const nextNames = next.map(x => String(x));
+  const nextIds = Array.from(new Set(namesToLabelIds(nextNames)));
+  await tdFetch('/tasks/' + String(task.id), { method: 'POST', body: { labels: nextIds } });
+  task.labels = nextNames; // keep names locally for UI state
+}
+async function renderTop5Today(){
+  const el = document.getElementById('top5List');
+  if (!el) return;
+  el.innerHTML = '<p class="muted">Loading…</p>';
+  // Ensure token is available
+  try{
+    if (!token){ token = await getToken(); }
+  }catch(_e){}
+  if (!token){ el.innerHTML = '<p class="muted">Connect your Todoist token to see Top 5.</p>'; return; }
+  try{
+    const todayISO = toLocalISO(new Date());
+    const res = await tdFetch('/tasks?filter=' + encodeURIComponent('today'));
+    const all = Array.isArray(res) ? res : [];
+    // Filter only those with a due time today
+    const withTimeToday = all.filter(t => {
+      if (!t || !t.due || !t.due.datetime) return false;
+      const dt = new Date(t.due.datetime);
+      return toLocalISO(dt) === todayISO;
+    });
+    withTimeToday.sort((a,b) => {
+      const ta = Date.parse(a.due.datetime);
+      const tb = Date.parse(b.due.datetime);
+      return ta - tb;
+    });
+    const top = withTimeToday.slice(0, 5);
+    if (!top.length){ el.innerHTML = '<p class="muted">No timed tasks for today.</p>'; return; }
+    el.innerHTML = '';
+    for (const t of top){
+      const row = document.createElement('div');
+      row.className = 'task-card';
+      const time = t.due && t.due.datetime ? formatLocalHM(t.due.datetime) : '';
+      const title = t.content || '';
+      const focusOn = taskHasLabel(t, 'focus');
+      row.innerHTML = `<div class="task-title"><span class="pill">${time}</span><span>${title}</span><button class="icon-btn" data-role="focus" style="margin-left:auto" title="Focus">🎯</button></div>`;
+      const btn = row.querySelector('button[data-role="focus"]');
+      if (btn){
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          // Start focus timer page directly
+          try { startFocusTimerFor(t, 5); } catch(_e){}
+        });
+      }
+      // Clicking the row jumps to task review for this task
+      row.addEventListener('click', async () => {
+        try{ await ensureProjectsLoaded(); } catch(_e){}
+        cameFromTop5 = true;
+        const pos = tasks.findIndex(x => String(x.id) === String(t.id));
+        if (pos >= 0){
+          idx = pos; show(scrTask); renderCurrentTask();
+        } else {
+          tasks.unshift(t); idx = 0; show(scrTask); renderCurrentTask();
+        }
+      });
+      el.appendChild(row);
+    }
+  }catch(e){
+    el.innerHTML = `<p class="muted">Failed to load top 5: ${e.message}</p>`;
+  }
+}
 
 // Sync API helper for in-place updates (e.g., recurring reschedule)
 async function syncPost(commands){
@@ -854,10 +1006,253 @@ function uuidv4(){
   }
 }
 
+// Focus timer state
+let focusTimerId = null;
+let focusStartTs = 0;
+let focusTask = null;
+let focusPaused = false;
+let focusAccumulatedMs = 0; // sum of active focus intervals
+let focusLastTickTs = 0;
+function formatMMSS(ms){
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+  const ss = String(totalSec % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+function startFocusTimerFor(task, minutes){
+  focusTask = task;
+  if (focusTaskTitleEl){
+    const href = task.url || (task.id ? ('https://app.todoist.com/app/task/' + String(task.id)) : null);
+    const titleText = task.content || '(Untitled)';
+    const projectName = task.project_id ? (projectIdToName.get(String(task.project_id)) || '') : '';
+    const prefix = projectName ? `<span class="pill">${projectName}</span>` : '';
+    focusTaskTitleEl.innerHTML = href ? `${prefix}<a href="${href}" target="_blank" rel="noopener noreferrer">${titleText}</a>` : `${prefix}${titleText}`;
+  }
+  if (focusStatusEl) focusStatusEl.textContent = '';
+  if (focusSubtasksEl){
+    focusSubtasksEl.innerHTML = '<div class="subtasks-title">Subtasks</div><div class="muted">Loading…</div>';
+  }
+  const mins = Math.max(1, Number(minutes) || 5);
+  focusStartTs = Date.now();
+  focusAccumulatedMs = 0;
+  focusPaused = false;
+  focusLastTickTs = focusStartTs;
+  if (focusTimerEl) focusTimerEl.textContent = '00:00';
+  if (focusTimerId) { clearInterval(focusTimerId); focusTimerId = null; }
+  focusTimerId = setInterval(() => {
+    if (!focusPaused){
+      const now = Date.now();
+      focusAccumulatedMs += (now - focusLastTickTs);
+      focusLastTickTs = now;
+      if (focusTimerEl) focusTimerEl.textContent = formatMMSS(focusAccumulatedMs);
+    }
+  }, 250);
+  // Record start for potential resume; no nudges
+  try{ chrome.runtime.sendMessage({ type: 'focus_start', taskId: task.id, taskTitle: task.content || '', startAt: focusStartTs }, function(_res){ /* ignore */ }); }catch(_e){}
+  show(scrFocus);
+  try { renderFocusSubtasks(task); } catch(_e) {}
+}
+function safeDateFrom(x){
+  if (!x) return null;
+  const ts = Date.parse(x);
+  return Number.isFinite(ts) ? new Date(ts) : null;
+}
+function compareSubtasks(a, b){
+  const ad = a && a.due && (a.due.datetime || a.due.date);
+  const bd = b && b.due && (b.due.datetime || b.due.date);
+  const aDue = safeDateFrom(ad);
+  const bDue = safeDateFrom(bd);
+  if (aDue && bDue) return aDue - bDue;
+  if (aDue && !bDue) return -1;
+  if (!aDue && bDue) return 1;
+  const ac = safeDateFrom(a && a.created_at);
+  const bc = safeDateFrom(b && b.created_at);
+  if (ac && bc) return ac - bc;
+  if (ac && !bc) return -1;
+  if (!ac && bc) return 1;
+  return 0;
+}
+async function fetchSubtasksForTask(parentId){
+  const all = await tdFetch('/tasks');
+  const list = Array.isArray(all) ? all.filter(t => String(t.parent_id || '') === String(parentId)) : [];
+  return list;
+}
+async function renderFocusSubtasks(task){
+  if (!focusSubtasksEl) return;
+  try{
+    const subs = await fetchSubtasksForTask(task.id);
+    if (!subs.length){
+      focusSubtasksEl.innerHTML = '';
+      return;
+    }
+    subs.sort(compareSubtasks);
+    const top = subs.slice(0, 5);
+    const rows = top.map(st => {
+      const title = st.content || '(Untitled)';
+      // No project pill here to reduce redundancy with parent
+      let meta = '';
+      if (st.due && (st.due.datetime || st.due.date)){
+        const d = st.due.datetime ? new Date(st.due.datetime) : safeDateFrom(st.due.date);
+        meta = d ? `${toLocalISO(d)}` : '';
+      } else if (st.created_at){
+        const dc = safeDateFrom(st.created_at);
+        meta = dc ? `${toLocalISO(dc)}` : '';
+      }
+      const href = st.url || (st.id ? (`https://app.todoist.com/app/task/${String(st.id)}`) : '#');
+      return `<div class=\"subtask-row\"><a class=\"title\" href=\"${href}\" target=\"_blank\" rel=\"noopener noreferrer\">${title}</a>${meta ? `<span class=\"meta\">${meta}</span>` : ''}</div>`;
+    }).join('');
+    focusSubtasksEl.innerHTML = `<div class=\"subtasks-title\">Subtasks</div>${rows}`;
+  }catch(e){
+    focusSubtasksEl.innerHTML = `<div class=\"subtasks-title\">Subtasks</div><div class=\"muted\">Failed to load</div>`;
+  }
+}
+
+function resumeFocusIfAny(){
+  try{
+    chrome.storage?.local?.get(['focus_timer_state_v1'], (data) => {
+      const st = data && data['focus_timer_state_v1'];
+      if (!st || !st.startAt) return;
+      // Seed minimal task for actions like complete
+      focusTask = { id: st.taskId, content: st.taskTitle };
+      focusStartTs = st.startAt;
+      focusAccumulatedMs = Date.now() - focusStartTs; // approximate when resuming
+      focusPaused = false;
+      focusLastTickTs = Date.now();
+      // Render title link
+      if (focusTaskTitleEl){
+        const href = st.taskId ? ('https://app.todoist.com/app/task/' + String(st.taskId)) : null;
+        const titleText = st.taskTitle || '(Task)';
+        focusTaskTitleEl.innerHTML = href ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${titleText}</a>` : titleText;
+      }
+      if (focusTimerId){ clearInterval(focusTimerId); focusTimerId = null; }
+      if (focusTimerEl) focusTimerEl.textContent = formatMMSS(focusAccumulatedMs);
+      focusTimerId = setInterval(() => {
+        if (!focusPaused){
+          const now = Date.now();
+          focusAccumulatedMs += (now - focusLastTickTs);
+          focusLastTickTs = now;
+          if (focusTimerEl) focusTimerEl.textContent = formatMMSS(focusAccumulatedMs);
+        }
+      }, 250);
+      show(scrFocus);
+
+      // Nudging removed
+    });
+  }catch(_e){}
+}
+
 // Init
 (function init(){
   getToken().then(function(tok){
     token = tok;
     show(token ? scrStart : scrToken);
+    // If a focus session is active, resume it instead of showing home
+    if (token){ resumeFocusIfAny(); }
+    if (token){ try { renderTop5Today(); } catch(_e) {} }
   });
 })();
+
+document.addEventListener('DOMContentLoaded', function(){
+  // Resume focus mode view if requested
+  if (location.hash === '#focus-resume'){
+    // Fetch stored state from background
+    try{
+      chrome.storage?.local?.get(['focus_timer_state_v1'], (data) => {
+        const st = data && data['focus_timer_state_v1'];
+        if (!st) return;
+        focusStartTs = st.startAt || Date.now();
+        focusAccumulatedMs = Date.now() - focusStartTs; // approximate when resuming
+        focusPaused = false;
+        focusLastTickTs = Date.now();
+        if (focusTimerId) { clearInterval(focusTimerId); focusTimerId = null; }
+        if (focusTimerEl) focusTimerEl.textContent = formatMMSS(focusAccumulatedMs);
+        focusTimerId = setInterval(() => {
+          if (!focusPaused){
+            const now = Date.now();
+            focusAccumulatedMs += (now - focusLastTickTs);
+            focusLastTickTs = now;
+            if (focusTimerEl) focusTimerEl.textContent = formatMMSS(focusAccumulatedMs);
+          }
+        }, 250);
+        if (focusTaskTitleEl) focusTaskTitleEl.textContent = st.taskTitle || '(Task)';
+        show(scrFocus);
+        try{
+          chrome.storage.local.get(['focus_nudge_prompt_v1'], (d) => {
+            if (d && d['focus_nudge_prompt_v1']){
+              if (nudgeRow) nudgeRow.style.display = '';
+            }
+          });
+        }catch(_e){}
+        try{ chrome.runtime.sendMessage({ type: 'nudge_popup_opened' }, function(){ /* ignore */ }); }catch(_e){}
+      });
+    }catch(_e){}
+  }
+});
+
+if (focusCloseTaskBtn){
+  focusCloseTaskBtn.addEventListener('click', async function(){
+    try{
+      const t = focusTask || (tasks[idx] || null);
+      if (!t) return;
+      if (focusTimerId){ clearInterval(focusTimerId); focusTimerId = null; }
+      try{ chrome.runtime.sendMessage({ type: 'focus_cancel' }, function(){ /* ignore */ }); }catch(_e){}
+      await tdFetch('/tasks/' + String(t.id) + '/close', { method: 'POST' });
+      if (focusStatusEl) focusStatusEl.textContent = 'Task completed ✔';
+      show(scrStart);
+      try { renderTop5Today(); } catch(_e) {}
+    } catch(e){
+      if (focusStatusEl) focusStatusEl.textContent = 'Complete failed: ' + e.message;
+    }
+  });
+}
+
+// Nudging removed
+
+if (focusPauseBtn){
+  focusPauseBtn.addEventListener('click', function(){
+    focusPaused = !focusPaused;
+    focusLastTickTs = Date.now();
+    focusPauseBtn.textContent = focusPaused ? 'Resume' : 'Pause';
+  });
+}
+if (focusStopBtn){
+  focusStopBtn.addEventListener('click', async function(){
+    try{
+      const t = focusTask || (tasks[idx] || null);
+      if (!t) return;
+      if (focusTimerId){ clearInterval(focusTimerId); focusTimerId = null; }
+      try{ chrome.runtime.sendMessage({ type: 'focus_cancel' }, function(){ /* ignore */ }); }catch(_e){}
+      // Add cumulative actual-* label based on user-entered minutes; remove only prior actual-* labels, preserve others
+      const userMins = Math.max(0, Number(focusMinutesInput && focusMinutesInput.value ? focusMinutesInput.value : 0) || 0);
+      const sessionStep = Math.floor(userMins / 5) * 5;
+      if (sessionStep > 0){
+        // Build existing label names
+        const existingNames = Array.isArray(t.labels)
+          ? t.labels.map(x => String(x))
+          : (Array.isArray(t.label_ids)
+              ? t.label_ids.map(n => labelNameById.get(Number(n))).filter(Boolean)
+              : []);
+        // Find current cumulative actual-* (max)
+        let previousActualMinutes = 0;
+        for (const nm of existingNames){
+          if (typeof nm === 'string' && /^actual-\d+$/.test(nm)){
+            const m = Number(nm.slice('actual-'.length));
+            if (Number.isFinite(m) && m > previousActualMinutes) previousActualMinutes = m;
+          }
+        }
+        const newTotal = previousActualMinutes + sessionStep;
+        const newLabelName = `actual-${newTotal}`;
+        await ensureLabelsExist([newLabelName]);
+        const keptNames = existingNames.filter(n => !/^actual-\d+$/.test(String(n)));
+        const nextNames = keptNames.concat([newLabelName]);
+        await tdFetch('/tasks/' + String(t.id), { method: 'POST', body: { labels: nextNames } });
+        t.labels = nextNames;
+      }
+      if (focusStatusEl) focusStatusEl.textContent = 'Focus stopped';
+      show(scrStart);
+      try { renderTop5Today(); } catch(_e) {}
+    }catch(e){
+      if (focusStatusEl) focusStatusEl.textContent = 'Stop failed: ' + e.message;
+    }
+  });
+}

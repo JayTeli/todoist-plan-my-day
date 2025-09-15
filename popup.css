@@ -1,3 +1,47 @@
+.subtasks {
+	margin: 8px 0 4px 0;
+	padding: 8px;
+	background: #0f172a0d;
+	border: 1px solid #e5e7eb;
+	border-radius: 8px;
+}
+.subtasks .subtasks-title {
+	font-weight: 600;
+	font-size: 12px;
+	letter-spacing: .3px;
+	text-transform: uppercase;
+	color: #6b7280;
+	margin-bottom: 6px;
+}
+.subtasks .subtask-row {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 0;
+	border-bottom: 1px dashed #e5e7eb;
+}
+.subtasks .subtask-row:last-child { border-bottom: 0; }
+.subtasks .pill {
+	background: #eef2ff;
+	color: #3730a3;
+	border-radius: 999px;
+	padding: 2px 8px;
+	font-size: 11px;
+}
+.subtasks .title {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.subtasks .meta {
+	justify-self: end;
+	font-size: 12px;
+	color: #6b7280;
+	white-space: nowrap;
+}
+.subtasks a { color: inherit; text-decoration: none; }
+.subtasks a:hover { text-decoration: underline; }
 :root{
     --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --card:#f8fafc; --accent:#2563eb;
   }
@@ -87,3 +131,48 @@
   .row .sm{ padding:6px 10px; border-radius:8px; font-size:13px; }
 button.success{ background:#16a34a; color:#fff; }
 button.danger{ background:#dc2626; color:#fff; }
+
+/* Home (Start screen) color enhancements */
+body:not(.is-task){
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 40%, #fdf4ff 100%);
+}
+
+#screen-start .header-title{
+  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+#screen-start .feature{
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border-color: #e5e7eb;
+  box-shadow: 0 6px 18px rgba(99,102,241,0.08), 0 2px 6px rgba(15,23,42,0.04);
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+#screen-start .feature:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(99,102,241,0.12), 0 4px 10px rgba(15,23,42,0.06);
+  border-color: #bfdbfe;
+}
+
+#screen-start .feature-head .feature-title{
+  color: #0f172a;
+}
+#screen-start .feature-head .feature-subtitle{
+  color: #475569;
+}
+
+/* Top 5 list accents */
+#top5List .task-card{
+  border-left: 4px solid rgba(37,99,235,0.25);
+}
+#top5List .task-card:hover{
+  border-left-color: #2563eb;
+  background: #eef6ff;
+}
+#top5List .task-title .pill:first-child{
+  background: #ecfeff;
+  border-color: #a5f3fc;
+  color: #075985;
+}

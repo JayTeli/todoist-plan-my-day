@@ -44,6 +44,16 @@
             </div>
           </div>
         </div>
+
+        <div class="feature">
+          <div class="feature-head">
+            <div class="feature-title">Top 5 for today</div>
+            <div class="feature-subtitle">Soonest tasks with due time today</div>
+          </div>
+          <div class="feature-body">
+            <div id="top5List" class="list"></div>
+          </div>
+        </div>
       </section>
 
       <!-- Screen 2: Task review -->
@@ -104,6 +114,7 @@
 
         <div class="row" id="actionRow">
           <button id="submitUpdate">Update</button>
+          <button id="focusStartBtn" class="icon-btn" title="Start focus">🎯 Focus</button>
           <button id="prevTask" class="secondary">Previous</button>
           <button id="skipTask" class="secondary">Skip</button>
           <button id="doneTask" class="success sm">Done</button>
@@ -111,6 +122,24 @@
           <div id="taskCounter" class="chip"></div>
         </div>
         <div id="status" class="status"></div>
+      </section>
+
+      <!-- Screen 5: Focus mode -->
+      <section id="screen-focus" class="screen hidden">
+        <div class="task-card">
+          <div class="task-title" id="focusTaskTitle"></div>
+          <div id="focusTimer" class="focus-timer" style="font-size:40px; font-weight:900; margin:8px 0; letter-spacing:1px;">00:00</div>
+          <div id="focusStatus" class="status"></div>
+          <div id="focusSubtasks" class="subtasks"></div>
+          <div class="row">
+            <label for="focusMinutesInput" class="muted" style="margin-right:8px;">Minutes focused:</label>
+            <input id="focusMinutesInput" type="number" min="0" step="1" placeholder="0" style="width:90px;" />
+          </div>
+          <div class="row">
+            <button id="focusPause" class="secondary">Pause</button>
+            <button id="focusStop" class="danger">Stop focus</button>
+          </div>
+        </div>
       </section>
 
       <!-- Screen 3: All done -->
