@@ -1,8 +1,9 @@
 /**
  * Todoist hourly planner (Apps Script) + Email report — unique ranks starting at 1
  * - Fetch active tasks due "today | overdue"
- * - Group order: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon, other
- * - Within each group, sub-group by duration: estimated-under-5m, estimated-5m-to-15m, estimated-15m-to-30m, estimated-30m-to-1h, estimated-1h-2h, estimated-over-2h
+ * - Group order: urgent-now, urgent-morning, urgent-afternoon, urgent-today, urgent-soon, other
+ * - Within each group: pressure (high before low), then duration sub-group: estimated-under-5m, estimated-5m-to-15m, estimated-15m-to-30m, estimated-30m-to-1h, estimated-1h-2h, estimated-over-2h
+ * - After duration: earlier due time first (if any)
  * - Final tie-break: created_at oldest first
  * - Assign unique ranks 1..N in sorted order (no duplicates)
  * - Email report with columns: rank, labels, task, project, due time, due string
@@ -18,11 +19,17 @@ const TARGET_TZ = 'Asia/Kolkata'; // use your desired IANA timezone
 // Category order (lower number = earlier in list)
 const CATEGORY_ORDER = [
   'urgent-now',         // 0
-  'urgent-today',       // 1
-  'high-pressure',      // 2
-  'low-pressure',       // 3
+  'urgent-morning',     // 1
+  'urgent-afternoon',   // 2
+  'urgent-today',       // 3
   'urgent-soon'         // 4
   // 5 => all others (no recognized labels)
+];
+
+// Pressure precedence within a category
+const PRESSURE_ORDER = [
+  'high-pressure',
+  'low-pressure'
 ];
 
 // Duration sub-group order within a category
@@ -153,6 +160,13 @@ function computeCategoryIndex_(labelNamesLower) {
   return 5;
 }
 
+function computePressureIndex_(labelNamesLower) {
+  for (let idx = 0; idx < PRESSURE_ORDER.length; idx++) {
+    if (labelNamesLower.indexOf(PRESSURE_ORDER[idx]) !== -1) return idx;
+  }
+  return PRESSURE_ORDER.length; // no pressure -> last
+}
+
 function computeDurationIndex_(labelNamesLower) {
   for (let idx = 0; idx < DURATION_ORDER.length; idx++) {
     if (labelNamesLower.indexOf(DURATION_ORDER[idx]) !== -1) return idx;
@@ -165,6 +179,7 @@ function decorateTask_(t, idToLabelName, projectIdx) {
   const labelsLower = labelNames.map(s => s.toLowerCase());
 
   const categoryIndex = computeCategoryIndex_(labelsLower);
+  const pressureIndex = computePressureIndex_(labelsLower);
   const durationIndex = computeDurationIndex_(labelsLower);
 
   const createdAt = t.created_at || null;
@@ -175,6 +190,7 @@ function decorateTask_(t, idToLabelName, projectIdx) {
     labelNames,                // for email display (comma-separated)
     labelsLower,               // for comparisons
     categoryIndex,             // 0 best category, 5 is "other"
+    pressureIndex,             // 0 high, 1 low, 2 none
     durationIndex,             // 0..5 or DURATION_ORDER.length if none
     createdAt,                 // final tie-break
     projectName,
@@ -184,14 +200,21 @@ function decorateTask_(t, idToLabelName, projectIdx) {
 
 /**
  * Order rules:
- * 1) categoryIndex ASC (urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon, other)
- * 2) durationIndex ASC within category (under-15m .. over-3h)
- * 3) Final tie-break: created_at ASC (oldest first)
+ * 1) categoryIndex ASC (urgency window)
+ * 2) pressureIndex ASC (high before low, then none)
+ * 3) durationIndex ASC (shorter first)
+ * 4) due time earlier first (if any)
+ * 5) created_at ASC (oldest first)
  * 4) Stable by ID
  */
 function comparePerRules_(a, b) {
   if (a.categoryIndex !== b.categoryIndex) return a.categoryIndex - b.categoryIndex;
+  if (a.pressureIndex !== b.pressureIndex) return a.pressureIndex - b.pressureIndex;
   if (a.durationIndex !== b.durationIndex) return a.durationIndex - b.durationIndex;
+  // Earlier due time first (nulls last)
+  const adt = a.raw && a.raw.due && a.raw.due.datetime ? new Date(a.raw.due.datetime).getTime() : Number.MAX_SAFE_INTEGER;
+  const bdt = b.raw && b.raw.due && b.raw.due.datetime ? new Date(b.raw.due.datetime).getTime() : Number.MAX_SAFE_INTEGER;
+  if (adt !== bdt) return adt - bdt;
 
   // Final tie-break: created_at oldest first
   const ac = a.createdAt ? new Date(a.createdAt).getTime() : Number.MAX_SAFE_INTEGER;
@@ -249,7 +272,7 @@ function emailRankedTasks_(ordered, recipient) {
   };
 
   // Helpers for label rendering
-  const precedence = CATEGORY_ORDER.concat(DURATION_ORDER);
+  const precedence = CATEGORY_ORDER.concat(PRESSURE_ORDER).concat(DURATION_ORDER);
   function precedenceIndex_(nm){
     const i = precedence.indexOf(nm);
     return i === -1 ? 999 : i;
@@ -314,7 +337,7 @@ function emailRankedTasks_(ordered, recipient) {
       <h2 style="margin:0 0 8px">Todoist Ranked Tasks</h2>
       <div style="color:#555;margin-bottom:12px">
         Unique ranks assigned from <strong>1..${ordered.length}</strong> (1 = highest priority)${showingNote}.
-        Groups: urgent-now, urgent-today, high-pressure, low-pressure, urgent-soon. Within each group, duration sub-groups from <em>estimated-under-5m</em> to <em>estimated-over-2h</em>, then by oldest created.
+        Groups: urgent-now → urgent-morning → urgent-afternoon → urgent-today → urgent-soon → others. Within each group: high-pressure before low-pressure, then duration (under-5m → over-2h), then earlier due time, then oldest created.
       </div>
       <div style="margin:8px 0 16px; font-size:13px; color:#111;">
         <span style="display:inline-block; padding:4px 10px; border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; margin-right:8px;"><strong>Total</strong>&nbsp;${fmt(totalMin)}</span>

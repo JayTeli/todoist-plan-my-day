@@ -386,7 +386,7 @@ function renderSearchResults(list){
 		const pname = t.project_id ? (projectIdToName.get(String(t.project_id)) || t.project_id) : '';
 		const due = (t.due && t.due.string) ? t.due.string : '';
 		const labels = Array.isArray(t.labels) ? t.labels : [];
-		const urgency = labels.find(l => ['urgent-now','urgent-today','urgent-soon'].includes(String(l).toLowerCase()));
+		const urgency = labels.find(l => ['urgent-now','urgent-morning','urgent-afternoon','urgent-today','urgent-soon'].includes(String(l).toLowerCase()));
 		const pressure = labels.find(l => ['high-pressure','low-pressure'].includes(String(l).toLowerCase()));
 		const lhf = labels.find(l => String(l).toLowerCase() === 'low-hanging-fruit');
 		const urgencyBadge = urgency ? `<span class="badge red">${urgency}</span>` : '';
@@ -488,7 +488,7 @@ function renderCurrentTask(){
     return !!(id && existingLabelIds.has(Number(id)));
   }
 
-  const urgencyMap = ['urgent-now','urgent-today','urgent-soon'];
+  const urgencyMap = ['urgent-now','urgent-morning','urgent-afternoon','urgent-today','urgent-soon'];
   const pressureMap = ['high-pressure','low-pressure'];
   const durationMap = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-2h','estimated-over-2h'];
 
@@ -614,7 +614,7 @@ async function submitCurrent(){
     }
   }
 
-  const URGENCY = ['urgent-now','urgent-today','urgent-soon'];
+  const URGENCY = ['urgent-now','urgent-morning','urgent-afternoon','urgent-today','urgent-soon'];
   const PRESSURE = ['high-pressure','low-pressure'];
   const OLD_DURATION = ['under-15m','15m-to-30m','30m-to-1h','1h-2h','2h-3h','over-3h'];
   const NEW_DURATION = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-2h','estimated-over-2h'];
@@ -652,8 +652,8 @@ async function submitCurrent(){
   try {
     // Ensure labels exist for any newly added ones
     await ensureLabelsExist(toEnsure);
-    // Convert final label names to IDs for API payloads
-    const finalLabelIds = Array.from(new Set(namesToLabelIds(finalLabels)));
+    // Use names array for REST updates; preserve all non-target labels via names
+    const finalLabelNames = finalLabels.slice();
 
     // Compute explicit date (YYYY-MM-DD) for update
     const targetISO = presetChoiceToISO(dateChoice);
@@ -681,8 +681,8 @@ async function submitCurrent(){
         try {
           const todayISO = presetChoiceToISO('today');
           const updateBody = { due_date: todayISO };
-          // Always send labels to ensure old duration labels are removed
-          updateBody.labels = finalLabelIds;
+          // Always send labels (names) to ensure old duration labels are removed
+          updateBody.labels = finalLabelNames;
           await tdFetch('/tasks/' + idStr, { method: 'POST', body: updateBody });
           if (statusEl) statusEl.textContent = 'Updated ✔';
           idx += 1;
@@ -712,8 +712,8 @@ async function submitCurrent(){
           }
         };
         await syncPost([cmd]);
-        // Apply labels via REST to ensure duration label replacements are reflected
-        await tdFetch('/tasks/' + idStr, { method: 'POST', body: { labels: finalLabelIds } });
+        // Apply labels via REST (names) to ensure duration label replacements are reflected
+        await tdFetch('/tasks/' + idStr, { method: 'POST', body: { labels: finalLabelNames } });
         if (statusEl) statusEl.textContent = 'Updated ✔';
         idx += 1;
         if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
@@ -727,8 +727,8 @@ async function submitCurrent(){
 
     // Non-recurring: update due_date and labels directly
     const body = {};
-    // Always send labels to remove old duration labels
-    body.labels = finalLabelIds; // send IDs
+    // Always send labels to remove old duration labels (names)
+    body.labels = finalLabelNames;
     body.due_date = targetISO; // due_string not set
 
     console.log('Updating task (due_date only) with labels (names):', targetISO, finalLabels);
