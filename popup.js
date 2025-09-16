@@ -1137,51 +1137,44 @@ function drawBarChart(canvasId, series, tooltipFmt){
     ctx.fillText(String(v), 6, y+4);
   }
   
-  // draw bars with dynamic dark blue shading based on height
+  // draw bars with fixed vibrant palette, rounded corners, and value labels
   const N = series[0]?.points?.length || 0;
   const barSpacing = (W-padLeft-padRight) / N;
-  const barWidth = barSpacing * 0.95; // 95% width = minimal gaps
-  
-  // Dark blue color palette - lighter to darker based on height
-  const baseBlue = '#1e40af'; // Dark blue base
-  
+  const barWidth = barSpacing * 0.8; // moderate gaps like example
+  const palette = ['#1f3b8a', '#16a34a', '#f59e0b', '#8b5cf6', '#38bdf8', '#84cc16', '#facc15'];
+  const radius = 6;
+
+  function fillRoundRect(x, y, w, h, r){
+    const rr = Math.min(r, w/2, h);
+    ctx.beginPath();
+    ctx.moveTo(x, y+h);
+    ctx.lineTo(x, y+rr);
+    ctx.quadraticCurveTo(x, y, x+rr, y);
+    ctx.lineTo(x+w-rr, y);
+    ctx.quadraticCurveTo(x+w, y, x+w, y+rr);
+    ctx.lineTo(x+w, y+h);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   for (const s of series){
     s.points.forEach((p,i)=>{
       const x = padLeft + barSpacing * i + (barSpacing - barWidth) / 2;
       const barHeight = (H-padTop-padBottom) * (p.y / maxY);
       const y = H-padBottom - barHeight;
-      
-      // Calculate color intensity based on bar height (0 to 1)
-      const heightRatio = p.y / maxY;
-      
-            // Create subtle gradient from light teal to medium teal
-            let color;
-            if (heightRatio < 0.2) {
-              // Very light teal for small bars
-              color = '#ccfbf1';
-            } else if (heightRatio < 0.4) {
-              // Light teal
-              color = '#99f6e4';
-            } else if (heightRatio < 0.6) {
-              // Medium teal
-              color = '#5eead4';
-            } else if (heightRatio < 0.8) {
-              // Darker teal
-              color = '#2dd4bf';
-            } else {
-              // Darkest teal for tallest bars
-              color = '#14b8a6';
-            }
-      
-      // Solid fill with dynamic color
+
+      const color = palette[i % palette.length];
       ctx.fillStyle = color;
-      ctx.fillRect(x, y, barWidth, barHeight);
-      
-            // Border with slightly darker teal shade
-            ctx.strokeStyle = '#0d9488';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x, y, barWidth, barHeight);
-      
+      fillRoundRect(x, y, barWidth, barHeight, radius);
+
+      // value label above bar
+      const labelY = Math.max(padTop + 12, y - 6);
+      ctx.fillStyle = '#111827';
+      ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(p.y), x + barWidth/2, labelY);
+      ctx.textAlign = 'start';
+
       p._x = x + barWidth/2;
       p._y = y;
     });
