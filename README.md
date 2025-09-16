@@ -12,16 +12,16 @@ A lightweight Chrome Extension (Manifest V3) to plan your day with Todoist.
 
 Add your screenshots to the `docs/` folder with the following filenames (or update the paths below):
 
-- Home screen with features : Plan-my-day and Search
-  
+- Home screen with features: Plan‑my‑day and Search  
   ![Home](docs/home.png)
 
-- Task review screen
-  
+- Task review screen  
   ![Task Review](docs/review.png)
 
-- Search results list
-  
+- Focus mode (timer, subtasks, insights, charts)  
+  ![Focus](docs/focus.png)
+
+- Search results list  
   ![Search Results](docs/search-results.png)
 
 
@@ -37,8 +37,20 @@ Add your screenshots to the `docs/` folder with the following filenames (or upda
   - Previous/Skip controls:
     - Previous returns to the prior task in the planning flow.
     - If a task was opened from Search, Previous returns to Search results instead of the prior task.
-  - For recurring tasks:
-    - The extension updates the recurring task’s `due_date` to your chosen date and, in parallel, creates a one-off copy for tomorrow with the same labels. This avoids fighting Todoist’s recurrence engine and preserves the recurring chain.
+  - Recurring tasks:
+    - Uses the Sync API to reschedule the recurring item in‑place (no duplicate task). “Skip to next occurrence” is supported by completing the current instance.
+
+- Focus mode
+  - A distraction‑free page to work on the current task with a timer.
+  - Nudges removed. The clock runs until manually stopped.
+  - On stop, enter minutes focused; the extension adds to a cumulative label `actual-X` on the Todoist task (e.g. `actual-25`).
+  - Shows the top 5 subtasks (sorted by due date if present, else by created time). Section hides automatically when there are no subtasks.
+  - Main task and subtasks are clickable and open in Todoist.
+  - Insights section:
+    - Total tasks completed — last 30 days and last 7 days (bar charts).
+    - Projectwise — last 30 days and last 7 days (line charts, consistent colors with bars).
+    - Summary table — projectwise averages and max values, including Today column.
+    - Charts highlight average and peak with dashed lines; axes simplified (30‑day y‑axis ticks at 0/8/16/24…; others in 4s). Graphs reload when re‑entering an active session.
 
 - Search tasks
   - Keyword search entry on the home screen.
@@ -84,7 +96,7 @@ The extension uses the following permissions:
 - Tasks
   - Fetch overdue + today: `GET /rest/v2/tasks?filter=overdue | today`
   - Update task (date/labels): `POST /rest/v2/tasks/{id}` with `{ due_date, labels }`
-  - Create one-off task: `POST /rest/v2/tasks` with `{ content, project_id, due_date, labels }`
+  - Recurring reschedule in‑place (no duplicate): `POST https://api.todoist.com/sync/v9/sync` with an `item_update` command.
 
 - Labels
   - Preload: `GET /rest/v2/labels`
@@ -97,14 +109,13 @@ The extension uses the following permissions:
   - App endpoint: `GET https://app.todoist.com/api/v1/completed/search?query=<keyword>`
   - Then fetch active tasks and filter client-side to show only active matches (up to 50).
 
+- Insights data
+  - Completed items: `GET https://api.todoist.com/sync/v9/completed/get_all?since=<ISO>` (aggregated client‑side into daily totals and per‑project totals)
+
 
 ## Recurring Tasks – Date Changes
 
-- Recurring tasks frequently snap back to the next recurrence when their date is changed directly. To avoid confusion while still supporting your workflow, this extension:
-  - Updates the recurring task’s `due_date` to your selected preset, and
-  - In parallel, creates a one-off copy due tomorrow with the same labels.
-
-This preserves the recurring chain while also giving you a dated task to act on.
+Recurring tasks are updated in‑place using the Sync API so Todoist preserves the recurrence pattern. Choosing “Skip to next occurrence” completes the current instance to advance the schedule.
 
 
 ## Development
@@ -136,6 +147,15 @@ This preserves the recurring chain while also giving you a dated task to act on.
 ## License
 
 MIT
+
+## Recent Updates
+
+- Focus mode revamp: removed nudges; manual stop with minutes accumulates to `actual-X` label.
+- Subtasks preview on focus page (top 5, sorted); auto-hide when none.
+- Insights: totals and projectwise charts (30d, 7d), projectwise summary table, and color‑consistent palette.
+- Chart polish: cleaner axes (30d ticks at 8s), average and peak lines, improved legibility, and automatic reload when resuming focus.
+- New urgency labels: `urgent-morning` and `urgent-afternoon` (placed after `urgent-now`).
+- UI refinements to keep the popup scroll‑free and readable.
 
 ## Google Apps Script Automation (Hourly Planner + Email)
 
