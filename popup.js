@@ -1103,9 +1103,12 @@ function groupByProjectPerDay(items){
   const keys = Array.from(by.keys()).sort();
   return { map: by, keys };
 }
+// Shared bar colors for consistency across charts
+const BAR_COLORS = ['#1f3b8a', '#16a34a', '#f59e0b', '#8b5cf6', '#38bdf8', '#84cc16', '#facc15'];
 function pickPalette(names){
-  // Balanced professional palette - muted tones with one accent color
-  const base = ['#64748b','#6b7280','#71717a','#78716c','#84cc16','#22c55e','#10b981','#06b6d4','#0ea5e9','#3b82f6','#8b5cf6','#a855f7'];
+  // Use bar chart colors; extend with extras to avoid repeats
+  const extras = ['#0ea5e9','#22c55e','#fb923c','#a78bfa','#60a5fa','#14b8a6','#eab308','#34d399'];
+  const base = BAR_COLORS.concat(extras);
   const out = new Map(); let i=0;
   for (const n of names){ out.set(n, base[i%base.length]); i++; }
   return out;
@@ -1128,9 +1131,10 @@ function drawBarChart(canvasId, series, tooltipFmt){
   ctx.beginPath(); ctx.moveTo(padLeft, H-padBottom); ctx.lineTo(W-padRight, H-padBottom); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(padLeft, padTop); ctx.lineTo(padLeft, H-padBottom); ctx.stroke();
   
-  // y ticks in multiples of 4 - cleaner styling
+  // y ticks in multiples; use 8 for 30d chart for cleaner look
   ctx.fillStyle = '#374151'; ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  for (let v=0; v<=maxY; v+=4){
+  const tickStep = (canvasId === 'chartTotal30') ? 8 : 4;
+  for (let v=0; v<=maxY; v+=tickStep){
     const y = H-padBottom - (H-padTop-padBottom) * (v / maxY);
     ctx.beginPath(); ctx.moveTo(padLeft-6, y); ctx.lineTo(W-padRight, y); 
     ctx.strokeStyle = v===0? '#e5e7eb':'#f8fafc'; ctx.lineWidth = 1; ctx.stroke();
@@ -1141,7 +1145,7 @@ function drawBarChart(canvasId, series, tooltipFmt){
   const N = series[0]?.points?.length || 0;
   const barSpacing = (W-padLeft-padRight) / N;
   const barWidth = barSpacing * 0.8; // moderate gaps like example
-  const palette = ['#1f3b8a', '#16a34a', '#f59e0b', '#8b5cf6', '#38bdf8', '#84cc16', '#facc15'];
+  const palette = BAR_COLORS;
   const radius = 6;
 
   function fillRoundRect(x, y, w, h, r){
@@ -1166,14 +1170,6 @@ function drawBarChart(canvasId, series, tooltipFmt){
       const color = palette[i % palette.length];
       ctx.fillStyle = color;
       fillRoundRect(x, y, barWidth, barHeight, radius);
-
-      // value label above bar
-      const labelY = Math.max(padTop + 12, y - 6);
-      ctx.fillStyle = '#111827';
-      ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(String(p.y), x + barWidth/2, labelY);
-      ctx.textAlign = 'start';
 
       p._x = x + barWidth/2;
       p._y = y;
