@@ -1,3 +1,24 @@
+/* Updating overlay */
+#overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45); /* slate-900/45 */
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+#overlay.hidden { display: none; }
+#overlay .overlay-content{
+  background: rgba(255,255,255,0.92);
+  color: #111827;
+  padding: 14px 18px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
 .insights { margin-top: 2px; height:440px; overflow:hidden; }
 .insights-grid{ display:grid; grid-template-columns: 280px 1fr; gap:8px; align-items:start; }
 .charts-row {

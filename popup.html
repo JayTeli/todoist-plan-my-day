@@ -63,6 +63,14 @@
           <div class="task-meta" id="taskMeta"></div>
         </div>
 
+        <!-- Voice key prompt (hidden; shown only when starting voice without a saved key) -->
+        <div class="row" id="voiceRow" style="display:none; justify-content:space-between; gap:8px; align-items:center; margin:6px 0 10px;">
+          <div class="row" style="gap:8px; margin:0; align-items:center;">
+            <input id="openaiKeyInput" type="password" placeholder="OpenAI API key for voice (Cove)" style="width:260px;" />
+            <button id="saveOpenAIKey" class="secondary sm" title="Save OpenAI key">Save</button>
+          </div>
+        </div>
+
         <!-- Date selection group (preset radios + custom calendar) -->
         <div class="group">
           <div class="label">Date</div>
@@ -109,7 +117,7 @@
             <label><input type="radio" name="durationChoice" value="estimated-5m-to-15m" /> estimated-5m-to-15m</label>
             <label><input type="radio" name="durationChoice" value="estimated-15m-to-30m" /> estimated-15m-to-30m</label>
             <label><input type="radio" name="durationChoice" value="estimated-30m-to-1h" /> estimated-30m-to-1h</label>
-            <label><input type="radio" name="durationChoice" value="estimated-1h-2h" /> estimated-1h-2h</label>
+            <label><input type="radio" name="durationChoice" value="estimated-1h-to-2h" /> estimated-1h-to-2h</label>
             <label><input type="radio" name="durationChoice" value="estimated-over-2h" /> estimated-over-2h</label>
           </div>
         </div>
@@ -117,6 +125,7 @@
         <div class="row" id="actionRow">
           <button id="submitUpdate">Update</button>
           <button id="focusStartBtn" class="icon-btn" title="Start focus">🎯 Focus</button>
+          <button id="toggleVoice" class="icon-btn" title="Voice control">🎤 Start voice</button>
           <button id="prevTask" class="secondary">Previous</button>
           <button id="skipTask" class="secondary">Skip</button>
           <button id="doneTask" class="success sm">Done</button>
@@ -197,5 +206,9 @@
     </div>
 
     <script src="popup.js" type="module"></script>
+    <!-- Updating overlay -->
+    <div id="overlay" class="overlay hidden">
+      <div id="overlayContent" class="overlay-content">Updating task…</div>
+    </div>
   </body>
 </html>

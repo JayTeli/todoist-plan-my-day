@@ -2,7 +2,7 @@
  * Todoist hourly planner (Apps Script) + Email report — unique ranks starting at 1
  * - Fetch active tasks due "today | overdue"
  * - Group order: urgent-now, urgent-morning, urgent-afternoon, urgent-today, urgent-soon, other
- * - Within each group: pressure (high before low), then duration sub-group: estimated-under-5m, estimated-5m-to-15m, estimated-15m-to-30m, estimated-30m-to-1h, estimated-1h-2h, estimated-over-2h
+ * - Within each group: pressure (high before low), then duration sub-group: estimated-under-5m, estimated-5m-to-15m, estimated-15m-to-30m, estimated-30m-to-1h, estimated-1h-to-2h, estimated-over-2h
  * - After duration: earlier due time first (if any)
  * - Final tie-break: created_at oldest first
  * - Assign unique ranks 1..N in sorted order (no duplicates)
@@ -38,7 +38,7 @@ const DURATION_ORDER = [
   'estimated-5m-to-15m',
   'estimated-15m-to-30m',
   'estimated-30m-to-1h',
-  'estimated-1h-2h',
+  'estimated-1h-to-2h',
   'estimated-over-2h'
 ];
 
@@ -48,7 +48,7 @@ const DURATION_TO_MINUTES = {
   'estimated-5m-to-15m': 15,
   'estimated-15m-to-30m': 30,
   'estimated-30m-to-1h': 60,
-  'estimated-1h-2h': 120,
+  'estimated-1h-to-2h': 120,
   'estimated-over-2h': 150
 };
 

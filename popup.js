@@ -31,6 +31,7 @@ const focusTimerEl = document.getElementById('focusTimer');
 const focusStatusEl = document.getElementById('focusStatus');
 const focusSubtasksEl = document.getElementById('focusSubtasks');
 const chartTooltipEl = document.getElementById('chartTooltip');
+// Overlay (queried lazily in helpers to avoid null when script runs before DOM nodes)
 // Search
 const scrSearch = document.getElementById('screen-search');
 const searchInput = document.getElementById('searchInput');
@@ -59,6 +60,17 @@ let projectIdToName = new Map(); // id -> name
 let cameFromSearch = false; // whether current task view was opened from search
 let cameFromTop5 = false;   // whether current task view was opened from Top 5
 
+// Voice state
+let isVoiceActive = false;
+let openaiKey = '';
+let recognition = null;
+let ttsAudio = null;
+const VOICE_ENABLED = 'pmd_voice_enabled_v1';
+const MIC_GRANTED_KEY = 'pmd_voice_mic_granted_v1';
+const HAS_USED_VOICE_KEY = 'pmd_voice_used_once_v1';
+let lastHintTs = 0;
+let voiceHintSaid = false;
+
 const nudgeRow = null;
 const nudgeContinueBtn = null;
 const nudgeStopBtn = null;
@@ -66,6 +78,11 @@ const nudgeStopBtn = null;
 const focusPauseBtn = document.getElementById('focusPause');
 const focusStopBtn = document.getElementById('focusStop');
 const focusMinutesInput = document.getElementById('focusMinutesInput');
+
+// Voice controls
+const toggleVoiceBtn = document.getElementById('toggleVoice');
+const openaiKeyInput = document.getElementById('openaiKeyInput');
+const saveOpenAIKeyBtn = document.getElementById('saveOpenAIKey');
 
 function show(el){
   [scrStart, scrToken, scrTask, scrDone, scrSearch, scrFocus].forEach(s => s && s.classList.add('hidden'));
@@ -76,6 +93,11 @@ function show(el){
   } else {
     document.body.classList.remove('is-task');
   }
+  // Stop voice when leaving task screen
+  if (el !== scrTask && isVoiceActive) {
+    // keep enabled state, but pause recognition when off-screen
+    try { if (recognition) recognition.stop(); } catch(_e){}
+  }
 }
 function qAll(sel){ return Array.from(document.querySelectorAll(sel)); }
 
@@ -84,12 +106,378 @@ function setDateControlsEnabled(enabled){
   // calendar removed
 }
 
+function showOverlay(text){
+  try{
+    const el = document.getElementById('overlay');
+    const contentEl = document.getElementById('overlayContent');
+    if (contentEl && typeof text === 'string') contentEl.textContent = text;
+    if (el) el.classList.remove('hidden');
+  }catch(_e){}
+}
+function hideOverlay(){
+  try{
+    const el = document.getElementById('overlay');
+    if (el) el.classList.add('hidden');
+  }catch(_e){}
+}
+function hideOverlaySoon(delayMs){
+  try{ setTimeout(() => { try { hideOverlay(); } catch(_e){} }, Math.max(0, Number(delayMs)||0)); }catch(_e){}
+}
+
 // Token storage
 function getToken(){
 return new Promise(res => chrome.storage.sync.get([KEY], r => res(r[KEY] || '')));
 }
 function setToken(v){
 return new Promise(res => chrome.storage.sync.set({ [KEY]: v }, res));
+}
+
+// OpenAI key storage (for optional TTS)
+const OPENAI_KEY = 'pmd_openai_key_v1';
+function getOpenAIKey(){
+  return new Promise(res => chrome.storage.sync.get([OPENAI_KEY], r => res(r[OPENAI_KEY] || '')));
+}
+function setOpenAIKey(v){
+  return new Promise(res => chrome.storage.sync.set({ [OPENAI_KEY]: v }, res));
+}
+
+function normalizeUtterance(s){
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/monday/g, 'mon')
+    .replace(/tuesday/g, 'tues')
+    .replace(/wednesday/g, 'wed')
+    .replace(/thursday/g, 'thurs')
+    .replace(/friday/g, 'fri')
+    .replace(/saturday/g, 'sat')
+    .replace(/sunday/g, 'sun')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stripEmojis(s){
+  try{
+    return String(s || '')
+      .replace(/\p{Extended_Pictographic}/gu, '')
+      .replace(/[\uFE0F\u200D]/g, '')
+      .trim();
+  }catch(_e){
+    // Fallback: remove surrogate pairs and variation selectors
+    return String(s || '')
+      .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')
+      .replace(/[\uFE0F\u200D]/g, '')
+      .trim();
+  }
+}
+
+// Parse natural language duration ranges into our duration label values
+function parseDurationLabel(rawSeg){
+  try{
+    const s = String(rawSeg || '').toLowerCase().trim();
+    if (!s) return null;
+    const minutes = '(?:m|min|mins|minute|minutes)';
+    const hours   = '(?:h|hr|hrs|hour|hours)';
+
+    // Under 5 minutes
+    let m = s.match(new RegExp(`(?:under|less than)\s*(\d+)\s*${minutes}`));
+    if (m){ const v = Number(m[1]); if (Number.isFinite(v) && v <= 5) return 'estimated-under-5m'; }
+
+    // Over 2 hours
+    m = s.match(new RegExp(`(?:over|more than)\s*(\d+)\s*${hours}`));
+    if (m){ const v = Number(m[1]); if (Number.isFinite(v) && v >= 2) return 'estimated-over-2h'; }
+
+    // X minutes to Y minutes
+    m = s.match(new RegExp(`(\n?)(\d+)\s*${minutes}[^\d]*?(\d+)\s*${minutes}`));
+    if (m){
+      const a = Number(m[2]); const b = Number(m[3]);
+      if ((a===5 && b===15)) return 'estimated-5m-to-15m';
+      if ((a===15 && b===30)) return 'estimated-15m-to-30m';
+    }
+
+    // X minutes to Y hours (e.g., 30 mins to 1 hour)
+    m = s.match(new RegExp(`(\n?)(\d+)\s*${minutes}[^\d]*?(\d+)\s*${hours}`));
+    if (m){
+      const a = Number(m[2]); const b = Number(m[3]);
+      if (a===30 && b===1) return 'estimated-30m-to-1h';
+    }
+
+    // X hours to Y hours
+    m = s.match(new RegExp(`(\n?)(\d+)\s*${hours}[^\d]*?(\d+)\s*${hours}`));
+    if (m){
+      const a = Number(m[2]); const b = Number(m[3]);
+      if (a===1 && b===2) return 'estimated-1h-to-2h';
+    }
+
+    // Compact forms like 1h-2h, 30m-1h
+    m = s.match(new RegExp(`(\d+)\s*h\s*[-to]+\s*(\d+)\s*h`));
+    if (m){ const a = Number(m[1]); const b = Number(m[2]); if (a===1 && b===2) return 'estimated-1h-to-2h'; }
+    m = s.match(new RegExp(`(\d+)\s*m\s*[-to]+\s*(\d+)\s*h`));
+    if (m){ const a = Number(m[1]); const b = Number(m[2]); if (a===30 && b===1) return 'estimated-30m-to-1h'; }
+    m = s.match(new RegExp(`(\d+)\s*m\s*[-to]+\s*(\d+)\s*m`));
+    if (m){ const a = Number(m[1]); const b = Number(m[2]); if (a===5 && b===15) return 'estimated-5m-to-15m'; if (a===15 && b===30) return 'estimated-15m-to-30m'; }
+
+    return null;
+  }catch(_e){ return null; }
+}
+
+function runWhenTaskScreenVisible(fn){
+  try{
+    if (scrTask && !scrTask.classList.contains('hidden')){ fn(); return; }
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      if (scrTask && !scrTask.classList.contains('hidden')){ clearInterval(id); fn(); }
+      if (Date.now() - startedAt > 8000){ clearInterval(id); }
+    }, 100);
+  }catch(_e){}
+}
+
+function speakCurrentTaskTitle(){
+  try{
+    const t = tasks[idx];
+    if (!t) return;
+    const titleText = t.content || '(Untitled)';
+    const spoken = stripEmojis(titleText);
+    if (spoken) speak(spoken);
+  }catch(_e){}
+}
+
+async function speak(text){
+  const msg = String(text || '').trim();
+  if (!msg) return;
+  if (ttsAudio) { try { ttsAudio.pause(); } catch(_e){} ttsAudio = null; }
+  if (openaiKey){
+    try{
+      const model = 'gpt-4o-mini-tts';
+      const voice = 'fable';
+      console.log('[VOICE][TTS] Using OpenAI speech', { model, voice, chars: msg.length });
+      const res = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + openaiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg'
+        },
+        body: JSON.stringify({ model, voice, input: msg, format: 'mp3' })
+      });
+      console.log('[VOICE][TTS] Response', { ok: res.ok, status: res.status, statusText: res.statusText });
+      if (!res.ok) throw new Error('TTS failed: ' + res.status);
+      const buf = await res.arrayBuffer();
+      const blob = new Blob([buf], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      ttsAudio = new Audio(url);
+      try { ttsAudio.playbackRate = 1.25; await ttsAudio.play(); } catch(_e){ console.warn('[VOICE][TTS] Playback failed', _e); }
+      return;
+    } catch(_e){ console.warn('[VOICE][TTS] OpenAI TTS error; falling back to browser TTS', _e); }
+  }
+  try{
+    console.log('[VOICE][TTS] Using browser speechSynthesis');
+    const u = new SpeechSynthesisUtterance(msg);
+    try { u.rate = 1.25; } catch(_e){}
+    window.speechSynthesis.speak(u);
+  }catch(_e){}
+}
+
+function trySelectRadioByLabel(utter){
+  const u = normalizeUtterance(utter);
+  const labels = Array.from(document.querySelectorAll('#screen-task label'));
+  const entries = labels.map(lab => {
+    const txt = normalizeUtterance(lab.textContent || '');
+    const input = lab.querySelector('input[type="radio"]');
+    const name = input ? String(input.name || '') : '';
+    return { lab, txt, input, name };
+  }).filter(e => e.input && e.txt);
+
+  function select(e){
+    e.input.checked = true;
+    e.input.dispatchEvent(new Event('change', { bubbles: true }));
+    console.log('[VOICE][LABEL] Selected', { utter: u, labelText: e.txt, value: e.input.value, name: e.input.name });
+    speak((e.lab.textContent || '').trim());
+    return true;
+  }
+
+  // 1) Exact match across all labels
+  {
+    const exact = entries.find(e => e.txt === u);
+    if (exact) return select(exact);
+  }
+
+  // Heuristic category preference
+  const hasWord = (w) => u.includes(w);
+  const preferUrgency = hasWord('urgent');
+  const preferPressure = hasWord('pressure') || hasWord('high pressure') || hasWord('low pressure');
+  const preferDuration = hasWord('estimate') || hasWord('estimated') || hasWord('duration') || hasWord('minute') || hasWord('hour');
+  const preferDate = hasWord('today') || hasWord('tomorrow') || hasWord('next ');
+
+  function includesPick(candidates){
+    // prefer longest matching label text
+    const scored = candidates.map(e => ({ e, score: Math.max(e.txt.length, u.length) }));
+    // pick first where either contains the other (we already filtered by contains)
+    return select(scored[0].e);
+  }
+
+  function filterByGroup(name){
+    return entries.filter(e => e.name === name && (e.txt.includes(u) || u.includes(e.txt)));
+  }
+
+  // 2) Category-focused includes match (urgency, pressure, duration, then date)
+  if (preferUrgency){
+    const cand = filterByGroup('urgencyChoice'); if (cand.length) return includesPick(cand);
+  }
+  if (preferPressure){
+    const cand = filterByGroup('pressureChoice'); if (cand.length) return includesPick(cand);
+  }
+  if (preferDuration){
+    const cand = filterByGroup('durationChoice'); if (cand.length) return includesPick(cand);
+  }
+  if (preferDate){
+    // Special casing for "next first" → "next 1st"
+    const normalizedU = u.replace(/next first/g, 'next 1st');
+    const entriesDate = entries.filter(e => e.name === 'dateChoice');
+    const cand = entriesDate.filter(e => (normalizeUtterance(e.txt).includes(normalizedU) || normalizedU.includes(normalizeUtterance(e.txt))));
+    if (cand.length) return includesPick(cand);
+  }
+
+  // 3) Generic includes match as a fallback
+  {
+    const cand = entries.filter(e => (e.txt.includes(u) || u.includes(e.txt)));
+    if (cand.length) return includesPick(cand);
+  }
+
+  console.log('[VOICE][LABEL] No label match for utterance', u);
+  return false;
+}
+
+async function handleUtterance(raw){
+  // Split multi commands on "and"
+  const parts = String(raw).split(/\s+and\s+/i);
+  for (const part of parts){
+    const seg = part.trim(); if (!seg) continue;
+    const u = normalizeUtterance(seg);
+    console.log('[VOICE][ASR] Utterance', { raw: seg, normalized: u });
+    if (!u) continue;
+    // Commands
+    if (/(stop voice|mic off|end voice)/.test(u)) { console.log('[VOICE][CMD] stop voice'); stopVoice(); continue; }
+    if (/(update|submit|apply|update task)/.test(u)) { console.log('[VOICE][CMD] update'); if (submitUpdateBtn) submitUpdateBtn.click(); continue; }
+    // Do NOT treat plain "next" as skip; require explicit skip
+    if (/^(skip|skip task|skip this)$/i.test(seg)) { console.log('[VOICE][CMD] skip'); if (skipTaskBtn) skipTaskBtn.click(); continue; }
+    if (/^skip to next (occurrence|occurance)$/i.test(seg)) { console.log('[VOICE][CMD] skip to next occurrence'); trySelectRadioByLabel('skip to next occurrence'); continue; }
+    if (/(previous|back)/.test(u)) { console.log('[VOICE][CMD] previous'); if (prevTaskBtn) prevTaskBtn.click(); continue; }
+    if (/(done|complete)/.test(u)) { console.log('[VOICE][CMD] done'); if (doneTaskBtn) doneTaskBtn.click(); continue; }
+    if (/(delete|remove)/.test(u)) { console.log('[VOICE][CMD] delete'); if (deleteTaskBtn) deleteTaskBtn.click(); continue; }
+    if (/(focus|start focus)/.test(u)) { console.log('[VOICE][CMD] focus'); if (focusStartBtn) focusStartBtn.click(); continue; }
+
+    // Try radio by label
+    // Check for natural language duration patterns first
+    const dur = parseDurationLabel(seg);
+    if (dur){
+      const matched = trySelectRadioByLabel(dur);
+      if (matched) continue;
+    }
+    let ok = trySelectRadioByLabel(u);
+    if (!ok){
+      // Normalize some phrases to literal label text
+      const synonyms = [
+        ['urgent now', 'urgent-now'],
+        ['urgent morning', 'urgent-morning'],
+        ['urgent afternoon', 'urgent-afternoon'],
+        ['urgent today', 'urgent-today'],
+        ['urgent soon', 'urgent-soon'],
+        ['high pressure', 'high-pressure'],
+        ['low pressure', 'low-pressure'],
+        ['under 5', 'estimated-under-5m'],
+        ['5 to 15', 'estimated-5m-to-15m'],
+        ['15 to 30', 'estimated-15m-to-30m'],
+        ['30 to 1', 'estimated-30m-to-1h'],
+        ['1 to 2', 'estimated-1h-to-2h'],
+        ['over 2', 'estimated-over-2h'],
+        ['next first', 'next 1st'],
+        ['next monday', 'next mon'],
+        ['next tuesday', 'next tues'],
+        ['next wednesday', 'next wed'],
+        ['next thursday', 'next thurs'],
+        ['next friday', 'next fri'],
+        ['next saturday', 'next sat'],
+        ['next sunday', 'next sun'],
+        ['skip to next occurance', 'skip to next occurrence'],
+        ['skip next occurance', 'skip to next occurrence'],
+        ['skip next occurrence', 'skip to next occurrence'],
+        ['skip to the next occurance', 'skip to next occurrence'],
+        ['skip to the next occurrence', 'skip to next occurrence']
+      ];
+      for (const [a,b] of synonyms){
+        if (u === a || u.includes(a)){
+          ok = trySelectRadioByLabel(b);
+          if (ok) break;
+        }
+      }
+      // No more global hints
+    }
+  }
+}
+
+async function ensureMicPermission(){
+  try{
+    let wasGranted = false;
+    try { await new Promise(res => chrome.storage.sync.get([MIC_GRANTED_KEY], r => { wasGranted = !!r[MIC_GRANTED_KEY]; res(); })); } catch(_e){}
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    try { stream.getTracks().forEach(t => t.stop()); } catch(_e){}
+    try { chrome.storage.sync.set({ [MIC_GRANTED_KEY]: true }); } catch(_e){}
+    if (!wasGranted){
+      try { console.log('[VOICE][PERM] Mic granted first time; reloading extension'); chrome.runtime.reload(); } catch(_e){}
+    }
+    return true;
+  } catch(e){
+    console.warn('[VOICE][PERM] Mic permission denied or failed', e);
+    return false;
+  }
+}
+
+function startVoice(){
+  if (isVoiceActive) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ console.warn('[VOICE][ASR] SpeechRecognition not available'); speak('Speech recognition not supported in this browser.'); return; }
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+  console.log('[VOICE][ASR] Starting recognition', { lang: recognition.lang, continuous: recognition.continuous, interimResults: recognition.interimResults });
+  recognition.onresult = function(e){
+    try{
+      const res = e.results[e.results.length - 1];
+      if (res && res[0] && res.isFinal){
+        const text = res[0].transcript || '';
+        console.log('[VOICE][ASR] Result', { transcript: text, isFinal: res.isFinal, confidence: res[0].confidence });
+        // If TTS is speaking, stop immediately to reduce latency and avoid overlap
+        try { if (ttsAudio && !ttsAudio.paused) { ttsAudio.pause(); } } catch(_e){}
+        try { if (window.speechSynthesis && window.speechSynthesis.speaking) window.speechSynthesis.cancel(); } catch(_e){}
+        handleUtterance(text);
+      }
+    }catch(_e){}
+  };
+  recognition.onend = function(){
+    if (isVoiceActive && scrTask && !scrTask.classList.contains('hidden')){
+      try { recognition.start(); } catch(_e){}
+    }
+  };
+  try { recognition.start(); } catch(_e){}
+  isVoiceActive = true;
+  if (toggleVoiceBtn) toggleVoiceBtn.textContent = '🛑 Stop voice';
+  // Say hint only once for the entire review session
+  if (!voiceHintSaid){
+    voiceHintSaid = true;
+    speak('Voice is on. Say a label or say update.');
+  }
+  try { chrome.storage.sync.set({ [VOICE_ENABLED]: true, [HAS_USED_VOICE_KEY]: true }); } catch(_e){}
+}
+
+function stopVoice(){
+  isVoiceActive = false;
+  try { if (recognition) recognition.stop(); } catch(_e){}
+  recognition = null;
+  if (toggleVoiceBtn) toggleVoiceBtn.textContent = '🎤 Start voice';
+  try { chrome.storage.sync.set({ [VOICE_ENABLED]: false }); } catch(_e){}
 }
 
 // ----- Date helpers (timezone-safe) -----
@@ -108,7 +496,7 @@ function nextWeekdayISO(targetDow /* 0=Sun..6=Sat */) {
   const now = new Date();
   const todayDow = now.getDay();
   let delta = (targetDow - todayDow + 7) % 7;
-  if (delta === 0) delta = 7; // “next” => next week if today is that day
+  if (delta === 0) delta = 7; // "next" => next week if today is that day
   return toLocalISO(addDays(now, delta));
 }
 function presetChoiceToISO(choice) {
@@ -431,6 +819,11 @@ function renderCurrentTask(){
   } else {
     taskTitleEl.textContent = titleText;
   }
+  // Speak task title without emojis (even if mic not started)
+  try{
+    const spoken = stripEmojis(titleText);
+    if (spoken) speak(spoken);
+  }catch(_e){}
   const dueStr = (t.due && t.due.string) ? t.due.string : null;
   const isRecurring = !!(t.due && t.due.is_recurring);
   const pname = t.project_id ? (projectIdToName.get(String(t.project_id)) || t.project_id) : null;
@@ -491,7 +884,7 @@ function renderCurrentTask(){
 
   const urgencyMap = ['urgent-now','urgent-morning','urgent-afternoon','urgent-today','urgent-soon'];
   const pressureMap = ['high-pressure','low-pressure'];
-  const durationMap = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-2h','estimated-over-2h'];
+  const durationMap = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-to-2h','estimated-over-2h'];
 
   for (const u of urgencyMap){
     if (checkIfHasLabel(u)){
@@ -618,7 +1011,7 @@ async function submitCurrent(){
   const URGENCY = ['urgent-now','urgent-morning','urgent-afternoon','urgent-today','urgent-soon'];
   const PRESSURE = ['high-pressure','low-pressure'];
   const OLD_DURATION = ['under-15m','15m-to-30m','30m-to-1h','1h-2h','2h-3h','over-3h'];
-  const NEW_DURATION = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-2h','estimated-over-2h'];
+  const NEW_DURATION = ['estimated-under-5m','estimated-5m-to-15m','estimated-15m-to-30m','estimated-30m-to-1h','estimated-1h-to-2h','estimated-over-2h'];
 
   function withoutCategories(arr, cats){
     const lowers = new Set(cats.map(s => s.toLowerCase()));
@@ -746,8 +1139,13 @@ async function submitCurrent(){
 }
 
 function skipCurrent(){
-  idx += 1;
-  if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+  try { showOverlay('Skipping…'); } catch(_e){}
+  try{
+    idx += 1;
+    if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
+  } finally {
+    hideOverlaySoon(250);
+  }
 }
 
 async function completeTask(idStr){
@@ -762,7 +1160,24 @@ if (planBtn){
   planBtn.addEventListener('click', async function(){
     token = await getToken();
     if (!token){ show(scrToken); return; }
+    try { openaiKey = await getOpenAIKey(); if (openaiKeyInput && openaiKey) openaiKeyInput.value = '••••-saved-••••'; } catch(_e){}
     startFlow();
+    // Auto-start voice if previously used once, and auto-resume if enabled
+    try {
+      chrome.storage.sync.get([VOICE_ENABLED, HAS_USED_VOICE_KEY, MIC_GRANTED_KEY], async r => {
+        const wasEnabled = !!r[VOICE_ENABLED];
+        const usedBefore = !!r[HAS_USED_VOICE_KEY];
+        const micOk = !!r[MIC_GRANTED_KEY];
+        if ((wasEnabled || usedBefore) && micOk){
+          runWhenTaskScreenVisible(async () => {
+            const ok = await ensureMicPermission();
+            if (!ok) return;
+            startVoice();
+            speakCurrentTaskTitle();
+          });
+        }
+      });
+    } catch(_e){}
   });
 }
 if (saveTokenBtn){
@@ -771,34 +1186,43 @@ if (saveTokenBtn){
     if (!v) { alert('Please paste your Todoist API token'); return; }
     await setToken(v); token = v;
     if (tokenInput) tokenInput.value = '';
+    try { openaiKey = await getOpenAIKey(); if (openaiKeyInput && openaiKey) openaiKeyInput.value = '••••-saved-••••'; } catch(_e){}
     startFlow();
   });
 }
 if (submitUpdateBtn) submitUpdateBtn.addEventListener('click', async function(){
   try {
     if (statusEl) statusEl.textContent = 'Updating…';
+    showOverlay('Updating task…');
     await submitCurrent();
   } catch (e) {
     if (statusEl) statusEl.textContent = 'Update failed: ' + e.message;
   }
+  finally { hideOverlay(); }
 });
 if (skipTaskBtn)     skipTaskBtn.addEventListener('click', skipCurrent);
 if (restartBtn)      restartBtn.addEventListener('click', function(){ show(scrStart); });
 if (prevTaskBtn)     prevTaskBtn.addEventListener('click', async function(){
 	if (cameFromSearch){
 		cameFromSearch = false;
+		showOverlay('Previous…');
 		show(scrSearch);
+		hideOverlaySoon(250);
 		return;
 	}
   if (cameFromTop5){
     cameFromTop5 = false;
+    showOverlay('Previous…');
     show(scrStart);
     try { renderTop5Today(); } catch(_e) {}
+    hideOverlaySoon(250);
     return;
   }
 	if (idx > 0){
+		showOverlay('Previous…');
 		idx -= 1;
 		await refreshCurrentTask();
+		hideOverlaySoon(250);
 	}
 });
 if (searchBtn){
@@ -852,6 +1276,43 @@ if (deleteTaskBtn){
       if (idx >= tasks.length){ show(scrDone); } else { renderCurrentTask(); }
     }catch(e){
       if (statusEl) statusEl.textContent = 'Delete failed: ' + e.message;
+    }
+  });
+}
+
+// Voice UI events
+if (saveOpenAIKeyBtn){
+  saveOpenAIKeyBtn.addEventListener('click', async function(){
+    const v = openaiKeyInput ? (openaiKeyInput.value || '').trim() : '';
+    await setOpenAIKey(v);
+    openaiKey = v;
+    if (openaiKeyInput) openaiKeyInput.value = v ? '••••-saved-••••' : '';
+    speak(v ? 'OpenAI key saved' : 'OpenAI key cleared');
+    // Hide key row after saving
+    const voiceRow = document.getElementById('voiceRow');
+    if (voiceRow) voiceRow.style.display = 'none';
+    console.log('[VOICE][KEY] OpenAI key saved?', !!v);
+  });
+}
+if (toggleVoiceBtn){
+  toggleVoiceBtn.addEventListener('click', function(){
+    if (isVoiceActive) {
+      stopVoice();
+    } else {
+      // If no key yet, show input row first (optional for native TTS, but needed for Cove)
+      if (!openaiKey){
+        const voiceRow = document.getElementById('voiceRow');
+        if (voiceRow) voiceRow.style.display = '';
+        // Don't start voice until key saved or user chooses to proceed without key
+        speak('Please enter your OpenAI key to use Fable voice, then press Save.');
+        console.log('[VOICE][KEY] Prompt shown to collect OpenAI key');
+        return;
+      }
+      (async () => {
+        const ok = await ensureMicPermission();
+        if (!ok){ speak('Microphone permission is required to use voice.'); return; }
+        startVoice();
+      })();
     }
   });
 }
@@ -1491,6 +1952,11 @@ function resumeFocusIfAny(){
     // If a focus session is active, resume it instead of showing home
     if (token){ resumeFocusIfAny(); }
     if (token){ try { renderTop5Today(); } catch(_e) {} }
+    // Stop voice when popup is closed
+    try {
+      window.addEventListener('pagehide', function(){ if (isVoiceActive) { stopVoice(); } });
+      window.addEventListener('beforeunload', function(){ if (isVoiceActive) { try { recognition && recognition.stop(); } catch(_e){} isVoiceActive = false; } });
+    } catch(_e){}
   });
 })();
 
