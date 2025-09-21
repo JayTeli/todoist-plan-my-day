@@ -67,6 +67,58 @@ Add your screenshots to the `docs/` folder with the following filenames (or upda
   - Small app icon in the page title.
 
 
+## Voice mode (optional)
+
+Hands‑free task review using speech for output (TTS) and input (commands to select radios and trigger actions).
+
+### What you get
+- Speaks the task title automatically when a task opens (emoji‑stripped), even if mic input isn’t started.
+- Voice control to select radios by speaking the visible label or natural phrases (date, urgency, pressure, duration).
+- Multi‑command chaining with “and” (e.g., “next first and urgent today and low pressure and estimated 30 minutes to 1 hour and update task”).
+- Voice stays enabled across tasks and auto‑starts on future sessions if you used it once.
+- TTS speed is slightly faster (1.25×) to keep the flow snappy.
+
+### Setup
+1) Open the task review screen and click the mic button (🎤 Start voice). If you have not used voice before:
+- You’ll be prompted to paste an OpenAI API key (optional, for higher‑quality TTS). If you skip this, the browser’s speech synthesis is used.
+- Chrome will ask for Microphone permission. Allow it once; the extension may reload automatically the first time.
+
+2) Your OpenAI key (if provided) is stored locally in `chrome.storage.sync`. The extension calls the OpenAI Speech API (`/v1/audio/speech`) with model `gpt-4o-mini-tts` and voice `fable` to speak short confirmation text (task titles, selected label names, etc.).
+
+Notes
+- Microphone permission: If you don’t see the prompt, check `chrome://settings/content/microphone` and ensure the correct input device is selected and that sites can ask for mic access.
+- Speech recognition uses the browser’s Web Speech API. If your build doesn’t include it, recognition won’t start; TTS still works.
+
+### Using voice
+- Speak any visible radio label to select it. Examples:
+  - Date: “today”, “tomorrow”, “next Friday”, “next first” → selects “next 1st”, “skip to next occurrence”.
+  - Urgency: “urgent now”, “urgent today”, “urgent afternoon”.
+  - Pressure: “high pressure”, “low pressure”.
+  - Duration: natural language like “under 5 minutes”, “5 to 15 minutes”, “15 to 30 minutes”, “30 minutes to 1 hour”, “1 hour to 2 hours”, “over 2 hours”. Compact forms like “30m‑1h”, “1h‑2h” also work. Labels use m=minutes, h=hours (e.g., `estimated-30m-to-1h`, `estimated-1h-to-2h`).
+
+- Chain multiple actions with “and”:
+  - “next first and urgent today and low pressure and estimated 1h‑2h and update task”.
+
+- Commands (examples):
+  - Update: “update”, “submit”, “apply”, “update task”.
+  - Skip: “skip”, “skip task”, “skip this” (plain “next” is not treated as skip so you can say “next Monday” safely).
+  - Previous: “previous”, “back”.
+  - Done: “done”, “complete”.
+  - Delete: “delete”, “remove”.
+  - Focus mode: “focus”, “start focus”.
+  - Skip to next recurring instance: “skip to next occurrence/occurance”.
+
+Behavior & polish
+- The helper hint (“Say a label …”) is spoken only once per review session.
+- If you speak while the extension is talking, the extension cancels its speech immediately so it can respond without lag.
+- Selecting a radio only speaks the label name (no “Selected …” preface) to minimize delay.
+
+Privacy
+- Your OpenAI key (if provided) is stored locally in Chrome sync storage.
+- Microphone audio is accessed by the browser for recognition via the Web Speech API; the extension does not stream it to external services.
+- TTS requests send only the text to speak (e.g., task title, short confirmations) to OpenAI when a key is configured.
+
+
 ## Installation
 
 1. Clone or download this repository.
@@ -89,6 +141,7 @@ The extension uses the following permissions:
 - `host_permissions` –
   - `https://api.todoist.com/*` for the REST API (tasks, labels, projects)
   - `https://app.todoist.com/*` for the search helper endpoint
+  - `https://api.openai.com/*` (optional) for TTS if you provide an OpenAI API key
 
 
 ## How it Works (APIs)
