@@ -70,6 +70,9 @@ const MIC_GRANTED_KEY = 'pmd_voice_mic_granted_v1';
 const HAS_USED_VOICE_KEY = 'pmd_voice_used_once_v1';
 let lastHintTs = 0;
 let voiceHintSaid = false;
+const OPENAI_TTS_BLOCK_UNTIL = 'pmd_openai_tts_block_until_ms_v1';
+let ttsBlockUntilMs = 0;
+let ttsBlockWarned = false;
 
 const nudgeRow = null;
 const nudgeContinueBtn = null;
@@ -247,8 +250,20 @@ async function speak(text){
   const msg = String(text || '').trim();
   if (!msg) return;
   if (ttsAudio) { try { ttsAudio.pause(); } catch(_e){} ttsAudio = null; }
+  // Lazy-load OpenAI key if not yet loaded (e.g., when navigating from Top 5/Search)
+  if (!openaiKey){
+    try { openaiKey = await getOpenAIKey(); } catch(_e){}
+  }
+  // Load TTS block-until if not yet cached
+  if (!ttsBlockUntilMs){
+    try { await new Promise(res => chrome.storage.sync.get([OPENAI_TTS_BLOCK_UNTIL], r => { ttsBlockUntilMs = Number(r[OPENAI_TTS_BLOCK_UNTIL]||0) || 0; res(); })); } catch(_e){}
+  }
   if (openaiKey){
     try{
+      if (Date.now() < ttsBlockUntilMs){
+        if (!ttsBlockWarned) { console.warn('[VOICE][TTS] OpenAI TTS temporarily disabled until', new Date(ttsBlockUntilMs).toISOString()); ttsBlockWarned = true; }
+        throw new Error('blocked');
+      }
       const model = 'gpt-4o-mini-tts';
       const voice = 'fable';
       console.log('[VOICE][TTS] Using OpenAI speech', { model, voice, chars: msg.length });
@@ -262,7 +277,23 @@ async function speak(text){
         body: JSON.stringify({ model, voice, input: msg, format: 'mp3' })
       });
       console.log('[VOICE][TTS] Response', { ok: res.ok, status: res.status, statusText: res.statusText });
-      if (!res.ok) throw new Error('TTS failed: ' + res.status);
+      if (!res.ok){
+        const errText = await res.text().catch(()=> '');
+        console.warn('[VOICE][TTS] OpenAI response text:', errText);
+        // Inspect error for quota/rate issues and back off for a while
+        let shouldBlock = (res.status === 402 || res.status === 429);
+        try {
+          const j = errText ? JSON.parse(errText) : null;
+          const code = j && j.error && (j.error.code || j.error.type);
+          if (code && String(code).toLowerCase().includes('insufficient_quota')) shouldBlock = true;
+        } catch(_e){}
+        if (shouldBlock){
+          ttsBlockUntilMs = Date.now() + 5 * 60 * 1000; // 5 minutes
+          try { chrome.storage.sync.set({ [OPENAI_TTS_BLOCK_UNTIL]: ttsBlockUntilMs }); } catch(_e){}
+          if (!ttsBlockWarned) { console.warn('[VOICE][TTS] Disabling OpenAI TTS for 5m due to quota/rate error'); ttsBlockWarned = true; }
+        }
+        throw new Error('TTS failed: ' + res.status);
+      }
       const buf = await res.arrayBuffer();
       const blob = new Blob([buf], { type: 'audio/mpeg' });
       const url = URL.createObjectURL(blob);
@@ -736,28 +767,32 @@ async function fetchByFilter(filter){
 async function searchTasksByKeyword(keyword){
 	const kw = String(keyword || '').trim();
 	if (!kw) return [];
-	// Try new app endpoint for search
+	// Primary: REST filter search
+	const safeKw = kw.replace(/"/g, '\\"');
 	try{
-		const data = await appFetch('/api/v1/completed/search?query=' + encodeURIComponent(kw));
-		// The endpoint returns completed matches; we only want active tasks.
-		// As a follow-up, also fetch active tasks and filter client-side.
-		const all = await tdFetch('/tasks');
-		const lower = kw.toLowerCase();
-		const activeMatches = (Array.isArray(all) ? all : []).filter(t => t && typeof t.content === 'string' && t.content.toLowerCase().includes(lower));
-		return activeMatches.slice(0, 50);
-	}catch(e){
-		console.warn('app.todoist search failed, using REST fallback:', e?.message || e);
-		// Fallback: REST filter-only and/or client filter
-		const safeKw = kw.replace(/"/g, '\\"');
-		try {
-			const res = await fetchByFilter(`search: "${safeKw}"`);
-			return Array.isArray(res) ? res.slice(0, 50) : [];
-		} catch(_e){
-			const all = await tdFetch('/tasks');
-			const lower = kw.toLowerCase();
-			const matches = Array.isArray(all) ? all.filter(t => t && typeof t.content === 'string' && t.content.toLowerCase().includes(lower)) : [];
-			return matches.slice(0, 50);
+		const byFilter = await fetchByFilter(`search: "${safeKw}"`);
+		if (Array.isArray(byFilter) && byFilter.length){
+			console.log('[SEARCH] REST filter results:', byFilter.length);
+			return byFilter.slice(0, 50);
 		}
+	}catch(e){ console.warn('[SEARCH] REST filter failed:', e?.message || e); }
+
+	// Fallback: client-side filter across active tasks
+	try{
+		const all = await tdFetch('/tasks');
+		const text = kw.toLowerCase();
+		const words = text.split(/\s+/).filter(Boolean);
+		const results = (Array.isArray(all) ? all : []).filter(t => {
+			if (!t || typeof t.content !== 'string') return false;
+			const c = t.content.toLowerCase();
+			// AND-match on all words
+			return words.every(w => c.includes(w));
+		});
+		console.log('[SEARCH] Client filter results:', results.length);
+		return results.slice(0, 50);
+	}catch(e){
+		console.warn('[SEARCH] Client filter failed:', e?.message || e);
+		return [];
 	}
 }
 
